@@ -113,7 +113,9 @@ export default function SessionPage() {
   const [visible,   setVisible]   = useState(false)
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [userId,    setUserId]    = useState<string | null>(null)
-  const bottomRef = useRef<HTMLDivElement>(null)
+  const [elapsed,   setElapsed]   = useState(0)
+  const bottomRef  = useRef<HTMLDivElement>(null)
+  const timerRef   = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // ── Effects (untouched) ────────────────────────────────────────────────────
   useEffect(() => {
@@ -129,6 +131,12 @@ export default function SessionPage() {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" })
   }, [messages])
+
+  useEffect(() => {
+    if (!topicSet) return
+    timerRef.current = setInterval(() => setElapsed(s => s + 1), 1000)
+    return () => { if (timerRef.current) clearInterval(timerRef.current) }
+  }, [topicSet])
 
   // ── Session logic (untouched) ──────────────────────────────────────────────
   async function startSession() {
@@ -212,12 +220,15 @@ export default function SessionPage() {
   return (
     <div style={{ minHeight: "100vh", background: "var(--bg)", display: "flex", flexDirection: "column" }}>
 
-      {/* Header (untouched) */}
-      <div style={{ borderBottom: "1px solid var(--border)", padding: "20px 48px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+      {/* Header */}
+      <div style={{ borderBottom: "1px solid var(--border)", padding: "20px 48px", display: "flex", alignItems: "center", justifyContent: "space-between", position: "relative" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
           <div style={{ width: "6px", height: "6px", borderRadius: "50%", background: "var(--accent)", animation: "pulse 2s infinite" }} />
           <p style={{ color: "var(--text)", fontSize: "13px", letterSpacing: "0.05em" }}>{topic}</p>
         </div>
+        <p style={{ position: "absolute", left: "50%", transform: "translateX(-50%)", fontFamily: "DM Mono, monospace", fontSize: "13px", color: "#ffffff", letterSpacing: "0.1em" }}>
+          {String(Math.floor(elapsed / 3600)).padStart(2, "0")}:{String(Math.floor((elapsed % 3600) / 60)).padStart(2, "0")}:{String(elapsed % 60).padStart(2, "0")}
+        </p>
         <button onClick={handleEndSession} style={{ background: "none", border: "none", color: "var(--text-3)", fontFamily: "DM Mono, monospace", fontSize: "12px", cursor: "pointer", letterSpacing: "0.05em" }}>end session</button>
       </div>
 
