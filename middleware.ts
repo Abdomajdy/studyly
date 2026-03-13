@@ -2,14 +2,12 @@ import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 
 export async function middleware(request: NextRequest) {
-  // Start with a response that forwards the incoming request headers
   let supabaseResponse = NextResponse.next({
     request: {
       headers: request.headers,
     },
   });
 
-  // Use your Supabase project URL and publishable key directly
   const url = 'https://rmbjflipducgwydgzvrt.supabase.co';
   const key = 'sb_publishable_SJtZqNdLTnefTXh5SQw8Rw_RERIJFk9';
 
@@ -32,7 +30,7 @@ export async function middleware(request: NextRequest) {
 
   const path = request.nextUrl.pathname;
   const isProtected =
-    path.startsWith('/dashboard') || path.startsWith('/session');
+    path.startsWith('/dashboard') || path.startsWith('/session') || path.startsWith('/sessions');
 
   if (isProtected && !user) {
     return NextResponse.redirect(new URL('/login', request.url));
@@ -42,5 +40,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/dashboard/:path*', '/session/:path*'],
+  matcher: ['/dashboard/:path*', '/session/:path*', '/sessions/:path*'],
 };

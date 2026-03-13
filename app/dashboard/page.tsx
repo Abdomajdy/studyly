@@ -179,10 +179,14 @@ export default function DashboardPage() {
             <span style={{ fontSize: "11px", color: "var(--text-3)" }}>◆</span>
             <span style={{ fontSize: "13px", color: "var(--text)", fontFamily: "DM Mono, monospace", letterSpacing: "0.03em" }}>dashboard</span>
           </div>
-          <div style={{ padding: "10px 12px", display: "flex", alignItems: "center", gap: "10px", marginBottom: "2px", opacity: 0.4, cursor: "not-allowed" }}>
+          <div
+            onClick={() => router.push("/sessions")}
+            style={{ padding: "10px 12px", display: "flex", alignItems: "center", gap: "10px", marginBottom: "2px", cursor: "pointer" }}
+            onMouseOver={e => (e.currentTarget.style.background = "var(--bg-2)")}
+            onMouseOut={e => (e.currentTarget.style.background = "transparent")}
+          >
             <span style={{ fontSize: "11px", color: "var(--text-3)" }}>○</span>
-            <span style={{ fontSize: "13px", color: "var(--text-3)", fontFamily: "DM Mono, monospace", letterSpacing: "0.03em" }}>sessions</span>
-            <span style={{ marginLeft: "auto", fontSize: "10px", color: "var(--text-3)", letterSpacing: "0.08em" }}>soon</span>
+            <span style={{ fontSize: "13px", color: "var(--text-2)", fontFamily: "DM Mono, monospace", letterSpacing: "0.03em" }}>sessions</span>
           </div>
           <div style={{ padding: "10px 12px", display: "flex", alignItems: "center", gap: "10px", opacity: 0.4, cursor: "not-allowed" }}>
             <span style={{ fontSize: "11px", color: "var(--text-3)" }}>○</span>
