@@ -24,10 +24,26 @@ export async function endSession(sessionId: string, summary: string): Promise<vo
   try {
     const { error } = await supabase
       .from('study_sessions')
-      .update({ ended_at: new Date().toISOString(), duration_minutes: 0 })
+      .update({ ended_at: new Date().toISOString() })
       .eq('id', sessionId)
     if (error) { console.error('[endSession]', error) }
   } catch (err) {
     console.error('[endSession] unexpected:', err)
+  }
+}
+
+export async function logMessage(
+  sessionId: string,
+  userId: string,
+  role: 'user' | 'assistant',
+  content: string
+): Promise<void> {
+  try {
+    const { error } = await supabase
+      .from('message_logs')
+      .insert({ session_id: sessionId, user_id: userId, role, content })
+    if (error) console.error('[logMessage]', error)
+  } catch (err) {
+    console.error('[logMessage] unexpected:', err)
   }
 }

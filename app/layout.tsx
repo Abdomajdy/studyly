@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import "katex/dist/katex.min.css";
 import CustomCursor from "./components/CustomCursor";
+import { Toaster } from "sonner";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -38,6 +40,21 @@ export default function RootLayout({
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
         <CustomCursor />
         {children}
+        <Toaster
+          theme="dark"
+          position="bottom-right"
+          richColors
+          toastOptions={{
+            style: {
+              background: "var(--bg-2)",
+              border: "1px solid var(--border)",
+              color: "var(--text)",
+              fontFamily: "DM Mono, monospace",
+              fontSize: "13px",
+              letterSpacing: "0.03em"
+            }
+          }}
+        />
       </body>
     </html>
   );
