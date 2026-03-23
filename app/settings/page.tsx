@@ -10,6 +10,7 @@ import {
   type UserCourse,
   formatExamDate,
   getExamUrgencyColor,
+  hasExamWithin48Hours,
 } from "@/lib/helpers"
 
 export default function SettingsPage() {
@@ -136,6 +137,7 @@ export default function SettingsPage() {
         username={username}
         courses={courses}
         recentSessions={recentSessions}
+        examUrgent={hasExamWithin48Hours(courses)}
         stats={{
           totalSessions,
           masteryCount: mastery.length,

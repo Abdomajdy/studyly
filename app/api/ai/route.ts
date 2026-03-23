@@ -1,7 +1,15 @@
 import Anthropic from "@anthropic-ai/sdk"
 import { NextRequest } from "next/server"
+import { createClient } from "@supabase/supabase-js"
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+
+function getSupabaseAdmin() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  )
+}
 
 const buildSystemPrompt = (topic: string, masteryContext?: string, examContext?: string, totalSessions?: number) => `
 <identity>
@@ -202,7 +210,19 @@ Did I use any filler words (certainly, of course, great question, absolutely)? I
 
 export async function POST(req: NextRequest) {
   try {
-    const { message, notes, topic, history = [], masteryContext, totalSessions } = await req.json()
+    const { message, notes, topic, history = [], masteryContext, totalSessions, paperId } = await req.json()
+
+    let paperContext = ""
+    if (paperId) {
+      const { data: paper } = await getSupabaseAdmin()
+        .from("past_papers")
+        .select("extracted_text, course")
+        .eq("id", paperId)
+        .single()
+      if (paper?.extracted_text) {
+        paperContext = `\n\nPAST PAPER CONTEXT:\nThe student has uploaded a past exam paper for ${paper.course}. Here is the extracted content:\n${paper.extracted_text.slice(0, 4000)}\n\nRun the student through this paper question by question. Ask one question at a time. After each answer, give honest feedback, then move to the next question. At the end, give a score and honest assessment.`
+      }
+    }
 
     const trimmedHistory = history.slice(-12)
 
@@ -218,7 +238,7 @@ export async function POST(req: NextRequest) {
       model: "claude-sonnet-4-5-20250929",
       max_tokens: 16000,
       stream: true,
-      system: buildSystemPrompt(topic, masteryContext, undefined, totalSessions),
+      system: buildSystemPrompt(topic, masteryContext, undefined, totalSessions) + paperContext,
       messages
     })
 

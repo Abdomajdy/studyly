@@ -10,7 +10,7 @@ import {
 } from "@/lib/helpers"
 
 type SidebarProps = {
-  activePage: "dashboard" | "sessions" | "analytics" | "settings"
+  activePage: "dashboard" | "sessions" | "exam-mode" | "past-papers" | "analytics" | "settings"
   username: string
   courses: UserCourse[]
   recentSessions: RecentSession[]
@@ -20,13 +20,16 @@ type SidebarProps = {
     weakCount: number
     avgMastery: number | null
   }
+  examUrgent?: boolean
 }
 
 const NAV_ITEMS: { key: SidebarProps["activePage"]; label: string; href: string }[] = [
-  { key: "dashboard",  label: "dashboard",  href: "/dashboard" },
-  { key: "sessions",   label: "sessions",   href: "/sessions" },
-  { key: "analytics",  label: "analytics",  href: "/analytics" },
-  { key: "settings",   label: "settings",   href: "/settings" },
+  { key: "dashboard",    label: "dashboard",    href: "/dashboard" },
+  { key: "sessions",     label: "sessions",     href: "/sessions" },
+  { key: "exam-mode",    label: "exam mode",    href: "/exam-mode" },
+  { key: "past-papers",  label: "past papers",  href: "/past-papers" },
+  { key: "analytics",    label: "analytics",    href: "/analytics" },
+  { key: "settings",     label: "settings",     href: "/settings" },
 ]
 
 function getScoreColor(score: number): string {
@@ -35,7 +38,7 @@ function getScoreColor(score: number): string {
   return "var(--danger)"
 }
 
-export default function Sidebar({ activePage, username, courses, recentSessions, stats }: SidebarProps) {
+export default function Sidebar({ activePage, username, courses, recentSessions, stats, examUrgent }: SidebarProps) {
   const router = useRouter()
 
   return (
@@ -80,6 +83,13 @@ export default function Sidebar({ activePage, username, courses, recentSessions,
               }}>
                 {item.label}
               </span>
+              {item.key === "exam-mode" && examUrgent && (
+                <span style={{
+                  width: "6px", height: "6px", borderRadius: "50%",
+                  background: "var(--danger)", display: "inline-block",
+                  animation: "examPulse 2s infinite",
+                }} />
+              )}
             </div>
           )
         })}
@@ -171,6 +181,13 @@ export default function Sidebar({ activePage, username, courses, recentSessions,
           onMouseOut={e => (e.currentTarget.style.color = "var(--text-3)")}
         >sign out</button>
       </div>
+
+      <style>{`
+        @keyframes examPulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.3; }
+        }
+      `}</style>
     </div>
   )
 }

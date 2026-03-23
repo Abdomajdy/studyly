@@ -11,6 +11,7 @@ import {
   getScoreColor,
   getScoreLabel,
   formatDate,
+  hasExamWithin48Hours,
 } from "@/lib/helpers"
 
 // ── Animated counter ────────────────────────────────────────────────────────
@@ -122,6 +123,7 @@ export default function AnalyticsPage() {
         username={username}
         courses={courses}
         recentSessions={recentSessions}
+        examUrgent={hasExamWithin48Hours(courses)}
         stats={{
           totalSessions,
           masteryCount: mastery.length,

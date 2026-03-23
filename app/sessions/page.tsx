@@ -9,6 +9,7 @@ import {
   type RecentSession,
   type UserCourse,
   formatDate,
+  hasExamWithin48Hours,
 } from "@/lib/helpers"
 
 type FullSession = {
@@ -133,6 +134,7 @@ export default function SessionsPage() {
         username={username}
         courses={courses}
         recentSessions={recentSessions}
+        examUrgent={hasExamWithin48Hours(courses)}
         stats={{
           totalSessions,
           masteryCount: mastery.length,

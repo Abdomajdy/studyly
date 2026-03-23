@@ -10,7 +10,7 @@ export async function POST(req: NextRequest) {
       .map((m: any) => `${m.role.toUpperCase()}: ${m.content}`)
       .join("\n\n")
     const response = await client.messages.create({
-      model: "claude-sonnet-4-5",
+      model: "claude-sonnet-4-5-20250929",
       max_tokens: 1024,
       system: `You are an expert educational assessor. You evaluate student understanding from study session transcripts. You are precise, honest, and never generous with scores.`,
       messages: [{

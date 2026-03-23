@@ -57,6 +57,15 @@ export function formatExamDate(dateStr: string): string {
   return `${Math.ceil(diffDays / 30)}mo`
 }
 
+export function hasExamWithin48Hours(courses: UserCourse[]): boolean {
+  const now = Date.now()
+  return courses.some(c => {
+    if (!c.exam_date) return false
+    const diff = new Date(c.exam_date).getTime() - now
+    return diff >= 0 && diff <= 48 * 60 * 60 * 1000
+  })
+}
+
 export function getExamUrgencyColor(dateStr: string): string {
   const date = new Date(dateStr)
   const now = new Date()

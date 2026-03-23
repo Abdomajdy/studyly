@@ -22,6 +22,8 @@ import * as Dialog from "@radix-ui/react-dialog"
 import PlotlyChart from "@/components/PlotlyChart"
 import DesmosEmbed from "@/components/DesmosEmbed"
 import P5Sketch from "@/components/P5Sketch"
+import TopicSuggestions from "@/components/TopicSuggestions"
+import RecapCard from "@/components/RecapCard"
 import "katex/dist/katex.min.css"
 
 // ── Mermaid diagram renderer ──────────────────────────────────────────────────
@@ -233,6 +235,17 @@ function SessionInner() {
   const [struggleCount, setStruggleCount] = useState(0)
   const [messageIndex, setMessageIndex] = useState(0)
   const [aiMessageTime, setAiMessageTime] = useState<number | null>(null)
+  const [course, setCourse] = useState("")
+  const [statedGoal, setStatedGoal] = useState("")
+  const [goalStep, setGoalStep] = useState(false)
+  const [pendingGoal, setPendingGoal] = useState("")
+  const [confidenceBefore, setConfidenceBefore] = useState<number | null>(null)
+  const [confidenceAfter, setConfidenceAfter] = useState<number | null>(null)
+  const [showRecap, setShowRecap] = useState(false)
+  const [recapData, setRecapData] = useState<{
+    topic: string; durationMinutes: number; scoreBefore: number | null;
+    scoreAfter: number; scoreDelta: number; sessionQuality: string; honestSummary: string;
+  } | null>(null)
   const bottomRef  = useRef<HTMLDivElement>(null)
   const timerRef   = useRef<ReturnType<typeof setInterval> | null>(null)
   const startedRef = useRef(false)
@@ -481,6 +494,23 @@ function SessionInner() {
     return () => { if (timerRef.current) clearInterval(timerRef.current) }
   }, [topicSet])
 
+  // ── Log pending goal once sessionId is available ──────────────────────
+  useEffect(() => {
+    if (!pendingGoal || !sessionId) return
+    const logGoal = async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+      await supabase.from("session_intents").insert({
+        session_id: sessionId,
+        user_id: user.id,
+        topic,
+        stated_goal: pendingGoal
+      })
+      setPendingGoal("")
+    }
+    logGoal()
+  }, [pendingGoal, sessionId, topic])
+
   // ── Struggle detection ──────────────────────────────────────────────────
   async function detectAndLogStruggle(
     userMessage: string,
@@ -526,6 +556,15 @@ function SessionInner() {
     if (!topic.trim()) return
     setTopicSet(true)
     streamStart([], notes)
+  }
+
+  async function handleStartWithGoal() {
+    setTopicSet(true)
+    setGoalStep(false)
+    await startSession()
+    if (statedGoal.trim()) {
+      setPendingGoal(statedGoal)
+    }
   }
 
   async function sendMessage() {
@@ -618,41 +657,63 @@ function SessionInner() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ topic, messages })
       })
-      const evaluation = await evalRes.json()
-
-      // Apply mastery delta
-      if (evaluation.mastery_delta !== undefined) {
-        const { applyMasteryDelta } = await import("@/services/mastery.service")
-        const newScore = await applyMasteryDelta(user.id, topic, "General", evaluation.mastery_delta)
-        if (evaluation.mastery_delta > 0) {
-          toast.success(`mastery +${evaluation.mastery_delta} → ${newScore}`)
-        } else if (evaluation.mastery_delta < 0) {
-          toast(`mastery ${evaluation.mastery_delta} → ${newScore}`, { icon: "→" })
-        }
+      if (!evalRes.ok) {
+        console.error("[handleEndSession] evaluate failed:", evalRes.status)
+        setSessionSummary("Session complete.")
+        if (sessionId) endSession(sessionId, "Session complete.").catch(() => {})
+        return
       }
 
-      // Store full evaluation in Supabase
-      await supabase.from("mastery_evaluations").insert({
-        user_id: user.id,
-        session_id: sessionId,
+      const evaluation = await evalRes.json()
+
+      // Show summary immediately — before any DB writes
+      setSessionSummary(evaluation.honest_summary || "Session complete.")
+
+      // Build recap data
+      const scoreBeforeMatch = masteryContext.match(new RegExp(`${topic.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\((\\d+)\\)`))
+      const scoreBefore = scoreBeforeMatch ? parseInt(scoreBeforeMatch[1]) : 50
+      const recapPayload = {
         topic,
+        durationMinutes: Math.floor(elapsed / 60),
+        scoreBefore,
+        scoreAfter: scoreBefore + (evaluation.mastery_delta ?? 0),
+        scoreDelta: evaluation.mastery_delta ?? 0,
+        sessionQuality: evaluation.session_quality ?? "productive",
+        honestSummary: evaluation.honest_summary ?? ""
+      }
+      setRecapData(recapPayload)
+
+      // All DB writes are fire-and-forget — don't block the UI
+      if (evaluation.mastery_delta !== undefined) {
+        import("@/services/mastery.service").then(({ applyMasteryDelta }) =>
+          applyMasteryDelta(user.id, topic, "General", evaluation.mastery_delta).then(newScore => {
+            if (evaluation.mastery_delta > 0) toast.success(`mastery +${evaluation.mastery_delta} → ${newScore}`)
+            else if (evaluation.mastery_delta < 0) toast(`mastery ${evaluation.mastery_delta} → ${newScore}`, { icon: "→" })
+          })
+        ).catch(err => console.error("[handleEndSession] mastery:", err))
+      }
+
+      supabase.from("mastery_evaluations").insert({
+        user_id: user.id, session_id: sessionId, topic,
         mastery_delta: evaluation.mastery_delta,
         understanding_level: evaluation.understanding_level,
-        can_apply: evaluation.can_apply,
-        can_explain: evaluation.can_explain,
-        specific_gaps: evaluation.specific_gaps,
-        specific_strengths: evaluation.specific_strengths,
+        can_apply: evaluation.can_apply, can_explain: evaluation.can_explain,
+        specific_gaps: evaluation.specific_gaps, specific_strengths: evaluation.specific_strengths,
         confidence_accuracy: evaluation.confidence_accuracy,
         recommended_next_topics: evaluation.recommended_next_topics,
-        session_quality: evaluation.session_quality,
-        honest_summary: evaluation.honest_summary
-      })
+        session_quality: evaluation.session_quality, honest_summary: evaluation.honest_summary
+      }).then(() => {})
 
-      // End session in DB
-      if (sessionId) await endSession(sessionId, evaluation.honest_summary)
+      if (sessionId) endSession(sessionId, evaluation.honest_summary).catch(() => {})
 
-      // Show honest summary in dialog
-      setSessionSummary(evaluation.honest_summary)
+      supabase.from("session_recaps").insert({
+        session_id: sessionId, user_id: user.id,
+        topic: recapPayload.topic, duration_minutes: recapPayload.durationMinutes,
+        score_before: recapPayload.scoreBefore, score_after: recapPayload.scoreAfter,
+        score_delta: recapPayload.scoreDelta, session_quality: recapPayload.sessionQuality,
+        honest_summary: recapPayload.honestSummary,
+      }).then(() => {})
+
       toast.success("session saved")
     } catch (err) {
       console.error("[handleEndSession]", err)
@@ -666,10 +727,97 @@ function SessionInner() {
     router.push("/dashboard")
   }
 
+  async function submitFeedback(helped: boolean) {
+    setFeedbackGiven(true)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user || !sessionId) return
+      await supabase.from("session_feedback").insert({
+        session_id: sessionId,
+        user_id: user.id,
+        topic,
+        helped,
+        confidence_before: confidenceBefore,
+        confidence_after: confidenceAfter
+      })
+      if (statedGoal) {
+        await supabase.from("session_intents")
+          .update({ goal_achieved: helped })
+          .eq("session_id", sessionId)
+      }
+    } catch (err) {
+      console.error("[submitFeedback]", err)
+    }
+  }
+
   // ── Derived visual values ────────────────────────────────────────────────
   const progressWidth = Math.min((messages.length / 20) * 100, 100)
   const formatTime = (s: number) =>
     `${Math.floor(s / 60).toString().padStart(2, "0")}:${(s % 60).toString().padStart(2, "0")}`
+
+  // ── Goal step screen (STEP 4) ─────────────────────────────────────────────
+  if (goalStep && !topicSet) {
+    return (
+      <div style={{
+        minHeight: "100vh", background: "var(--bg)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        padding: "24px", opacity: visible ? 1 : 0, transition: "opacity 0.6s ease"
+      }}>
+        <div style={{ width: "100%", maxWidth: "520px" }}>
+          <p style={{ color: "var(--accent)", fontSize: "11px", letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: "20px" }}>
+            ONE QUESTION BEFORE WE START
+          </p>
+          <h1 style={{ fontFamily: "DM Serif Display, serif", fontSize: "28px", color: "var(--text)", marginBottom: "12px", letterSpacing: "-0.02em" }}>
+            What do you want to be able to do by the end of this session?
+          </h1>
+          <p style={{ color: "var(--text-3)", fontSize: "13px", marginBottom: "32px", fontFamily: "DM Mono, monospace" }}>
+            Be specific. &quot;understand entropy&quot; is weak. &quot;explain why entropy increases in irreversible processes&quot; is strong.
+          </p>
+          <input
+            type="text"
+            placeholder="e.g. solve Thevenin equivalent problems without looking at notes..."
+            value={statedGoal}
+            onChange={e => setStatedGoal(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && statedGoal.trim() && handleStartWithGoal()}
+            autoFocus
+            style={{
+              width: "100%", background: "var(--bg-2)", color: "var(--text)",
+              border: "1px solid var(--border)", padding: "16px 20px",
+              fontFamily: "DM Mono, monospace", fontSize: "14px",
+              outline: "none", marginBottom: "12px", transition: "border-color 0.2s"
+            }}
+            onFocus={e => (e.currentTarget.style.borderColor = "var(--text-3)")}
+            onBlur={e => (e.currentTarget.style.borderColor = "var(--border)")}
+          />
+          <button
+            onClick={handleStartWithGoal}
+            disabled={!statedGoal.trim()}
+            style={{
+              width: "100%", background: statedGoal.trim() ? "var(--text)" : "var(--bg-3)",
+              color: statedGoal.trim() ? "var(--bg)" : "var(--text-3)",
+              border: "none", padding: "16px", fontFamily: "DM Mono, monospace",
+              fontSize: "13px", fontWeight: 500, cursor: statedGoal.trim() ? "pointer" : "not-allowed",
+              letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "12px",
+              transition: "all 0.2s"
+            }}
+          >
+            START SESSION →
+          </button>
+          <button
+            onClick={() => { setGoalStep(false); handleStartWithGoal() }}
+            style={{
+              background: "none", border: "none", color: "var(--text-3)",
+              fontFamily: "DM Mono, monospace", fontSize: "12px", cursor: "pointer",
+              letterSpacing: "0.05em", width: "100%", padding: "8px",
+              textTransform: "uppercase"
+            }}
+          >
+            ← SKIP
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   // ── Topic entry screen ────────────────────────────────────────────────────
   if (!topicSet) {
@@ -679,7 +827,25 @@ function SessionInner() {
           <p style={{ color: "var(--accent)", fontSize: "11px", letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: "20px", fontFamily: "DM Mono, monospace" }}>SESSION</p>
           <h1 style={{ fontFamily: "DM Serif Display, serif", fontSize: "36px", color: "var(--text)", marginBottom: "8px", letterSpacing: "-0.02em" }}>What are we locking in on?</h1>
           <p style={{ color: "var(--text-3)", fontSize: "13px", marginBottom: "40px" }}>Topic, chapter, concept. Be specific.</p>
-          <input type="text" placeholder="e.g. Fourier transforms, thermodynamics..." value={topic} onChange={e => setTopic(e.target.value)} onKeyDown={e => e.key === "Enter" && startSession()} autoFocus style={{ width: "100%", background: "var(--bg-2)", color: "var(--text)", border: "1px solid var(--border)", padding: "16px 20px", fontFamily: "DM Mono, monospace", fontSize: "14px", outline: "none", marginBottom: "12px", transition: "border-color 0.2s" }} onFocus={e => (e.currentTarget.style.borderColor = "var(--text-3)")} onBlur={e => (e.currentTarget.style.borderColor = "var(--border)")} />
+
+          <input
+            type="text"
+            placeholder="course name (optional)..."
+            value={course}
+            onChange={e => setCourse(e.target.value)}
+            style={{
+              width: "100%", background: "var(--bg-2)", color: "var(--text)",
+              border: "1px solid var(--border)", padding: "14px 20px",
+              fontFamily: "DM Mono, monospace", fontSize: "14px",
+              outline: "none", marginBottom: "12px", transition: "border-color 0.2s"
+            }}
+            onFocus={e => (e.currentTarget.style.borderColor = "var(--text-3)")}
+            onBlur={e => (e.currentTarget.style.borderColor = "var(--border)")}
+          />
+
+          <TopicSuggestions courseName={course} onSelect={(t) => setTopic(t)} />
+
+          <input type="text" placeholder="e.g. Fourier transforms, thermodynamics..." value={topic} onChange={e => setTopic(e.target.value)} onKeyDown={e => e.key === "Enter" && topic.trim() && setGoalStep(true)} autoFocus style={{ width: "100%", background: "var(--bg-2)", color: "var(--text)", border: "1px solid var(--border)", padding: "16px 20px", fontFamily: "DM Mono, monospace", fontSize: "14px", outline: "none", marginBottom: "12px", transition: "border-color 0.2s" }} onFocus={e => (e.currentTarget.style.borderColor = "var(--text-3)")} onBlur={e => (e.currentTarget.style.borderColor = "var(--border)")} />
 
           {/* PDF drag and drop (3E) */}
           <div
@@ -706,7 +872,7 @@ function SessionInner() {
             </p>
           </div>
 
-          <button onClick={startSession} disabled={!topic.trim()} style={{ width: "100%", background: topic.trim() ? "var(--text)" : "var(--bg-3)", color: topic.trim() ? "var(--bg)" : "var(--text-3)", border: "none", padding: "16px", fontFamily: "DM Mono, monospace", fontSize: "13px", fontWeight: 500, cursor: topic.trim() ? "pointer" : "not-allowed", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "16px", transition: "all 0.2s" }}>LOCK IN →</button>
+          <button onClick={() => { if (!topic.trim()) return; setGoalStep(true) }} disabled={!topic.trim()} style={{ width: "100%", background: topic.trim() ? "var(--text)" : "var(--bg-3)", color: topic.trim() ? "var(--bg)" : "var(--text-3)", border: "none", padding: "16px", fontFamily: "DM Mono, monospace", fontSize: "13px", fontWeight: 500, cursor: topic.trim() ? "pointer" : "not-allowed", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "16px", transition: "all 0.2s" }}>LOCK IN →</button>
           <button onClick={() => router.push("/dashboard")} style={{ background: "none", border: "none", color: "var(--text-3)", fontFamily: "DM Mono, monospace", fontSize: "12px", cursor: "pointer", letterSpacing: "0.05em", width: "100%", padding: "8px", textTransform: "uppercase" }}>← BACK</button>
         </div>
       </div>
@@ -1120,61 +1286,124 @@ function SessionInner() {
               )}
             </div>
 
-            {/* Feedback buttons */}
-            {sessionSummary && !feedbackGiven && (
-              <div style={{ display: "flex", gap: "8px", marginBottom: "24px" }}>
-                {[{ label: "IT HELPED", value: "positive" }, { label: "NOT REALLY", value: "negative" }].map(fb => (
-                  <button
-                    key={fb.value}
-                    onClick={() => {
-                      setFeedbackGiven(true)
-                      supabase.auth.getUser().then(({ data: { user } }) => {
-                        if (!user || !sessionId) return
-                        supabase.from("session_feedback").insert({
-                          user_id: user.id, session_id: sessionId, topic,
-                          feedback: fb.value,
-                        }).then(() => {})
-                      }).catch(() => {})
-                      toast(fb.value === "positive" ? "glad it helped" : "noted — we'll do better", { duration: 2000 })
-                    }}
-                    style={{
-                      flex: 1, background: "none",
-                      border: "1px solid var(--border)",
-                      color: "var(--text-3)", padding: "10px",
-                      fontFamily: "DM Mono, monospace", fontSize: "11px",
-                      letterSpacing: "0.1em", cursor: "pointer",
-                      transition: "color 0.2s, border-color 0.2s",
-                    }}
-                    onMouseOver={e => { e.currentTarget.style.color = "var(--text-2)"; e.currentTarget.style.borderColor = "var(--text-3)" }}
-                    onMouseOut={e => { e.currentTarget.style.color = "var(--text-3)"; e.currentTarget.style.borderColor = "var(--border)" }}
-                  >
-                    {fb.label}
-                  </button>
-                ))}
+            {/* Stated goal reminder */}
+            {statedGoal && (
+              <div style={{ borderLeft: "2px solid var(--accent)", paddingLeft: "16px", marginBottom: "20px" }}>
+                <p style={{ color: "var(--text-3)", fontSize: "10px", letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: "6px", fontFamily: "DM Mono, monospace" }}>
+                  YOUR GOAL WAS
+                </p>
+                <p style={{ color: "var(--text-2)", fontSize: "13px", fontFamily: "DM Mono, monospace", lineHeight: "1.7" }}>
+                  {statedGoal}
+                </p>
               </div>
             )}
-            {feedbackGiven && (
-              <p style={{ color: "var(--text-3)", fontSize: "11px", fontFamily: "DM Mono, monospace", letterSpacing: "0.08em", marginBottom: "24px" }}>
-                feedback recorded
+
+            {/* Feedback section */}
+            {!feedbackGiven ? (
+              <div style={{ marginBottom: "24px" }}>
+                <p style={{ color: "var(--text-3)", fontSize: "10px", letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: "16px", fontFamily: "DM Mono, monospace" }}>
+                  DID THIS SESSION HELP?
+                </p>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginBottom: "20px" }}>
+                  <div>
+                    <p style={{ color: "var(--text-3)", fontSize: "10px", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: "8px", fontFamily: "DM Mono, monospace" }}>CONFIDENCE BEFORE</p>
+                    <div style={{ display: "flex", gap: "6px" }}>
+                      {[1,2,3,4,5].map(n => (
+                        <button key={n} onClick={() => setConfidenceBefore(n)} style={{
+                          width: "32px", height: "32px",
+                          background: confidenceBefore === n ? "var(--accent)" : "var(--bg-3)",
+                          border: `1px solid ${confidenceBefore === n ? "var(--accent)" : "var(--border)"}`,
+                          color: confidenceBefore === n ? "var(--bg)" : "var(--text-3)",
+                          fontFamily: "DM Mono, monospace", fontSize: "12px",
+                          cursor: "pointer", transition: "all 0.15s"
+                        }}>{n}</button>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <p style={{ color: "var(--text-3)", fontSize: "10px", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: "8px", fontFamily: "DM Mono, monospace" }}>CONFIDENCE AFTER</p>
+                    <div style={{ display: "flex", gap: "6px" }}>
+                      {[1,2,3,4,5].map(n => (
+                        <button key={n} onClick={() => setConfidenceAfter(n)} style={{
+                          width: "32px", height: "32px",
+                          background: confidenceAfter === n ? "var(--accent)" : "var(--bg-3)",
+                          border: `1px solid ${confidenceAfter === n ? "var(--accent)" : "var(--border)"}`,
+                          color: confidenceAfter === n ? "var(--bg)" : "var(--text-3)",
+                          fontFamily: "DM Mono, monospace", fontSize: "12px",
+                          cursor: "pointer", transition: "all 0.15s"
+                        }}>{n}</button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: "12px" }}>
+                  <button
+                    onClick={() => submitFeedback(true)}
+                    style={{
+                      flex: 1, background: "none",
+                      border: "1px solid var(--success)", color: "var(--success)",
+                      padding: "12px", fontFamily: "DM Mono, monospace",
+                      fontSize: "12px", letterSpacing: "0.08em",
+                      textTransform: "uppercase", cursor: "pointer", transition: "all 0.2s"
+                    }}
+                    onMouseOver={e => { e.currentTarget.style.background = "rgba(90,158,111,0.1)" }}
+                    onMouseOut={e => { e.currentTarget.style.background = "none" }}
+                  >
+                    IT HELPED
+                  </button>
+                  <button
+                    onClick={() => submitFeedback(false)}
+                    style={{
+                      flex: 1, background: "none",
+                      border: "1px solid var(--border)", color: "var(--text-3)",
+                      padding: "12px", fontFamily: "DM Mono, monospace",
+                      fontSize: "12px", letterSpacing: "0.08em",
+                      textTransform: "uppercase", cursor: "pointer", transition: "all 0.2s"
+                    }}
+                    onMouseOver={e => { e.currentTarget.style.borderColor = "var(--danger)"; e.currentTarget.style.color = "var(--danger)" }}
+                    onMouseOut={e => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.color = "var(--text-3)" }}
+                  >
+                    NOT REALLY
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <p style={{ color: "var(--text-3)", fontSize: "12px", fontFamily: "DM Mono, monospace", marginBottom: "24px", letterSpacing: "0.05em" }}>
+                feedback saved. this makes studyly better.
               </p>
             )}
             <div style={{ display: "flex", gap: "12px" }}>
               <button
                 onClick={confirmEndSession}
-                disabled={!sessionSummary}
                 style={{
                   flex: 1,
-                  background: sessionSummary ? "var(--text)" : "var(--bg-3)",
-                  color: sessionSummary ? "var(--bg)" : "var(--text-3)",
+                  background: "var(--text)",
+                  color: "var(--bg)",
                   border: "none", padding: "16px",
                   fontFamily: "DM Mono, monospace", fontSize: "13px",
                   fontWeight: 500, letterSpacing: "0.08em",
-                  textTransform: "uppercase", cursor: sessionSummary ? "pointer" : "not-allowed",
+                  textTransform: "uppercase", cursor: "pointer",
                   transition: "all 0.2s"
                 }}
               >
                 BACK TO DASHBOARD →
               </button>
+              {recapData && (
+                <button
+                  onClick={() => setShowRecap(true)}
+                  style={{
+                    background: "none", border: "1px solid var(--accent)",
+                    color: "var(--accent)", padding: "16px 20px",
+                    fontFamily: "DM Mono, monospace", fontSize: "13px",
+                    letterSpacing: "0.08em", textTransform: "uppercase",
+                    cursor: "pointer", transition: "all 0.2s"
+                  }}
+                  onMouseOver={e => { e.currentTarget.style.background = "rgba(200,169,110,0.08)" }}
+                  onMouseOut={e => { e.currentTarget.style.background = "none" }}
+                >
+                  SHARE
+                </button>
+              )}
               <Dialog.Close asChild>
                 <button style={{
                   background: "none", border: "1px solid var(--border)",
@@ -1233,6 +1462,10 @@ function SessionInner() {
           border-color: var(--text-3) !important;
         }
       `}</style>
+
+      {showRecap && recapData && (
+        <RecapCard {...recapData} onClose={() => setShowRecap(false)} />
+      )}
     </div>
   )
 }

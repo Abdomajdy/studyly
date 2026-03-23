@@ -11,7 +11,10 @@ import {
   type UserCourse,
   getScoreColor,
   getScoreLabel,
+  hasExamWithin48Hours,
 } from "@/lib/helpers"
+import PeerComparison from "@/components/PeerComparison"
+import { toast } from "sonner"
 
 // ── Count-up hook (3C) ───────────────────────────────────────────────────────
 function useCountUp(target: number, duration = 800) {
@@ -33,6 +36,7 @@ function useCountUp(target: number, duration = 800) {
 
 export default function DashboardPage() {
   const router = useRouter()
+  const [userId,         setUserId]         = useState("")
   const [mastery,        setMastery]        = useState<MasteryRow[]>([])
   const [username,       setUsername]       = useState("")
   const [loading,        setLoading]        = useState(true)
@@ -44,12 +48,14 @@ export default function DashboardPage() {
   // UI state
   const [hoveredRow, setHoveredRow] = useState<string | null>(null)
   const [scoreDeltas, setScoreDeltas] = useState<Record<string, number>>({})
+  const [masteryExplanations, setMasteryExplanations] = useState<Record<string, string>>({})
 
   // ── Data loading ──────────────────────────────────────────────────────────
   useEffect(() => {
     async function load() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return router.push("/login")
+      setUserId(user.id)
 
       const { data: profile } = await supabase
         .from("profiles")
@@ -83,6 +89,51 @@ export default function DashboardPage() {
         .eq("user_id", user.id)
         .order("created_at", { ascending: true })
       if (userCourses) setCourses(userCourses)
+
+      // Latest mastery evaluation per topic for honest explanations
+      const { data: evals } = await supabase
+        .from("mastery_evaluations")
+        .select("topic, honest_summary")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false })
+      if (evals) {
+        const explanationMap: Record<string, string> = {}
+        evals.forEach(e => {
+          if (!explanationMap[e.topic]) explanationMap[e.topic] = e.honest_summary
+        })
+        setMasteryExplanations(explanationMap)
+      }
+
+      // Check for exams that were 7 days ago with no outcome recorded
+      const sevenDaysAgo = new Date(Date.now() - 7 * 86400000).toISOString().split("T")[0]
+      const { data: pastExams } = await supabase
+        .from("user_courses")
+        .select("course_name, exam_date")
+        .eq("user_id", user.id)
+        .lte("exam_date", sevenDaysAgo)
+        .gte("exam_date", new Date(Date.now() - 10 * 86400000).toISOString().split("T")[0])
+
+      if (pastExams?.length) {
+        for (const exam of pastExams) {
+          const { data: existing } = await supabase
+            .from("exam_outcomes")
+            .select("id")
+            .eq("user_id", user.id)
+            .eq("course", exam.course_name)
+            .single()
+
+          if (!existing) {
+            toast(`how did your ${exam.course_name} exam go?`, {
+              duration: 8000,
+              action: {
+                label: "TELL US",
+                onClick: () => router.push(`/exam-outcome?course=${encodeURIComponent(exam.course_name)}&date=${exam.exam_date}`)
+              }
+            })
+            break // Only show one at a time
+          }
+        }
+      }
 
       setLoading(false)
       setTimeout(() => setVisible(true), 50)
@@ -171,6 +222,7 @@ export default function DashboardPage() {
         username={username}
         courses={courses}
         recentSessions={recentSessions}
+        examUrgent={hasExamWithin48Hours(courses)}
         stats={{
           totalSessions: animatedSessions,
           masteryCount: animatedTopics,
@@ -315,9 +367,14 @@ export default function DashboardPage() {
                             <p style={{ color: "var(--text)", fontSize: "14px", marginBottom: "2px", fontFamily: "DM Mono, monospace" }}>
                               {row.topic}
                             </p>
-                            <p style={{ color: "var(--text-3)", fontSize: "11px", marginBottom: "8px" }}>
+                            <p style={{ color: "var(--text-3)", fontSize: "11px", marginBottom: masteryExplanations[row.topic] ? "4px" : "8px" }}>
                               {row.course}
                             </p>
+                            {masteryExplanations[row.topic] && (
+                              <p style={{ color: "var(--text-3)", fontSize: "11px", fontStyle: "italic", marginBottom: "8px", lineHeight: 1.5, maxWidth: "300px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                {masteryExplanations[row.topic]}
+                              </p>
+                            )}
                             <div style={{ height: "2px", background: "var(--border)", width: "100%", maxWidth: "200px" }}>
                               <div style={{
                                 height: "100%",
@@ -358,6 +415,8 @@ export default function DashboardPage() {
                   </div>
                 )}
               </div>
+
+              {userId && <PeerComparison userId={userId} mastery={mastery} />}
             </div>
 
             {/* ── Right column: gaps panel ────────────────────────────────────── */}
