@@ -56,6 +56,7 @@ export default function SessionsPage() {
   const [loading, setLoading] = useState(true)
   const [visible, setVisible] = useState(false)
   const [hoveredId, setHoveredId] = useState<string | null>(null)
+  const [messageCountMap, setMessageCountMap] = useState<Record<string, number>>({})
 
   // Sidebar data
   const [username, setUsername] = useState("")
@@ -86,6 +87,20 @@ export default function SessionsPage() {
       if (allSessions) {
         setSessions(allSessions)
         setRecentSessions(allSessions.slice(0, 5).map(s => ({ id: s.id, topic: s.topic, started_at: s.started_at, ended_at: s.ended_at })))
+
+        // Fetch message counts per session
+        const sessionIds = allSessions.map(s => s.id)
+        if (sessionIds.length > 0) {
+          const { data: messageCounts } = await supabase
+            .from("message_logs")
+            .select("session_id")
+            .in("session_id", sessionIds)
+          const countMap: Record<string, number> = {}
+          messageCounts?.forEach(m => {
+            countMap[m.session_id] = (countMap[m.session_id] || 0) + 1
+          })
+          setMessageCountMap(countMap)
+        }
       }
 
       const { data: userCourses } = await supabase.from("user_courses").select("id, course_name, course_code, exam_date").eq("user_id", user.id).order("created_at", { ascending: true })
@@ -198,9 +213,14 @@ export default function SessionsPage() {
                             {isInProgress && (
                               <div style={{ width: "6px", height: "6px", borderRadius: "50%", background: "var(--accent)", animation: "pulse 2s infinite", flexShrink: 0 }} />
                             )}
-                            <p style={{ color: "var(--text)", fontSize: "14px", fontFamily: "DM Mono, monospace", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                              {session.topic}
-                            </p>
+                            <div>
+                              <p style={{ color: "var(--text)", fontSize: "14px", fontFamily: "DM Mono, monospace", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                                {session.topic}
+                              </p>
+                              <span style={{ color: "var(--text-3)", fontSize: "11px", fontFamily: "DM Mono, monospace" }}>
+                                {messageCountMap[session.id] ? `${messageCountMap[session.id]} messages` : "no messages"}
+                              </span>
+                            </div>
                           </div>
                           <div style={{ flexShrink: 0, paddingLeft: "16px", textAlign: "right" }}>
                             {isHov ? (

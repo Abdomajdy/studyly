@@ -2,7 +2,8 @@
 import { useEffect, useState, useRef, Suspense, useCallback } from "react"
 import { supabase } from "@/lib/supabase"
 import { useRouter, useSearchParams } from "next/navigation"
-import { createSession, endSession, logMessage } from "@/services/session.service"
+import { createSession, endSession, logMessage, loadSessionMessages } from "@/services/session.service"
+// mastery evaluation now handled via /api/evaluate route
 import ReactMarkdown from "react-markdown"
 import remarkGfm from "remark-gfm"
 import remarkMath from "remark-math"
@@ -206,26 +207,6 @@ async function streamAI(
   onDone(full)
 }
 
-// ── Helper: read full stream as text ──────────────────────────────────────────
-async function fetchStreamAsText(body: Record<string, unknown>): Promise<string> {
-  const res = await fetch("/api/ai", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  })
-  if (!res.ok) throw new Error(`HTTP ${res.status}`)
-  const reader = res.body?.getReader()
-  if (!reader) throw new Error("No stream body")
-  const decoder = new TextDecoder()
-  let full = ""
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    full += decoder.decode(value, { stream: true })
-  }
-  return full
-}
-
 // ── Inner component that uses useSearchParams ─────────────────────────────────
 function SessionInner() {
   const router  = useRouter()
@@ -247,9 +228,18 @@ function SessionInner() {
   const [showSummaryDialog, setShowSummaryDialog] = useState(false)
   const [sessionSummary, setSessionSummary] = useState("")
   const [lottieData, setLottieData] = useState<object | null>(null)
+  const [feedbackGiven, setFeedbackGiven] = useState(false)
+  const [repeatedStruggleFlag, setRepeatedStruggleFlag] = useState(false)
+  const [struggleCount, setStruggleCount] = useState(0)
+  const [messageIndex, setMessageIndex] = useState(0)
+  const [aiMessageTime, setAiMessageTime] = useState<number | null>(null)
   const bottomRef  = useRef<HTMLDivElement>(null)
   const timerRef   = useRef<ReturnType<typeof setInterval> | null>(null)
   const startedRef = useRef(false)
+  const aiMessageTimeRef = useRef<number>(0)
+  const latencyRecordedRef = useRef(false)
+  const hiddenAtRef = useRef<number>(0)
+  const prevInputRef = useRef("")
 
   // ── Keyboard shortcuts (3F) ─────────────────────────────────────────────
   useHotkeys("ctrl+enter, meta+enter", (e) => {
@@ -268,6 +258,50 @@ function SessionInner() {
       .then(setLottieData)
       .catch(() => setLottieData(null))
   }, [])
+
+  // ── Passive data: visibility + copy tracking ─────────────────────────────
+  useEffect(() => {
+    function onVisibilityChange() {
+      if (document.hidden) {
+        hiddenAtRef.current = Date.now()
+      } else if (hiddenAtRef.current > 0) {
+        const duration = Date.now() - hiddenAtRef.current
+        hiddenAtRef.current = 0
+        supabase.auth.getUser().then(({ data: { user } }) => {
+          if (!user || !sessionId) return
+          supabase.from("attention_events").insert({
+            user_id: user.id, session_id: sessionId, topic,
+            duration_ms: duration, event_type: "tab_away"
+          }).then(() => {})
+          if (duration > 180000) {
+            supabase.from("attention_events").insert({
+              user_id: user.id, session_id: sessionId, topic,
+              duration_ms: duration, event_type: "distraction"
+            }).then(() => {})
+          }
+        }).catch(() => {})
+      }
+    }
+
+    function onCopy() {
+      const text = window.getSelection()?.toString() || ""
+      if (text.length <= 10) return
+      supabase.auth.getUser().then(({ data: { user } }) => {
+        if (!user || !sessionId) return
+        supabase.from("copy_events").insert({
+          user_id: user.id, session_id: sessionId, topic,
+          copied_text: text.slice(0, 500)
+        }).then(() => {})
+      }).catch(() => {})
+    }
+
+    document.addEventListener("visibilitychange", onVisibilityChange)
+    document.addEventListener("copy", onCopy)
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange)
+      document.removeEventListener("copy", onCopy)
+    }
+  }, [sessionId, topic])
 
   // ── Load mastery context + session count (3D) ───────────────────────────
   useEffect(() => {
@@ -354,6 +388,21 @@ function SessionInner() {
     setLoading(true)
     const startMsg = "Let's start. Give me a quick honest assessment of what I need to focus on for this topic, then ask me the first question."
 
+    // Insert session_metadata (fire-and-forget)
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (!user) return
+      const now = new Date()
+      supabase.from("session_metadata").insert({
+        user_id: user.id,
+        topic,
+        hour_of_day: now.getHours(),
+        day_of_week: now.getDay(),
+        is_mobile: window.innerWidth < 768,
+        screen_width: window.innerWidth,
+        total_sessions: totalSessions,
+      }).then(() => {})
+    }).catch(() => {})
+
     setMessages([...existingMessages, { role: "assistant", content: "" }])
 
     await streamAI(
@@ -377,6 +426,8 @@ function SessionInner() {
       },
       () => {
         setLoading(false)
+        aiMessageTimeRef.current = Date.now()
+        latencyRecordedRef.current = false
         toast("↓ response received", { duration: 1000, style: { opacity: 0.6 } })
       },
       (err) => {
@@ -430,6 +481,46 @@ function SessionInner() {
     return () => { if (timerRef.current) clearInterval(timerRef.current) }
   }, [topicSet])
 
+  // ── Struggle detection ──────────────────────────────────────────────────
+  async function detectAndLogStruggle(
+    userMessage: string,
+    currentMessageIndex: number,
+    latencyMs: number,
+    activeSessionId: string,
+    userId: string
+  ) {
+    const patterns: Record<string, RegExp[]> = {
+      blank: [/i don't know/i, /no idea/i, /i have no clue/i, /i can't remember/i],
+      gave_up: [/i give up/i, /forget it/i, /this is impossible/i],
+      asked_for_answer: [/just tell me/i, /what's the answer/i, /can you just show me/i],
+      reexplanation: [/can you (re)?explain/i, /i still don't get/i, /i'm still confused/i],
+      hedged: [/i think maybe/i, /not sure but/i, /could it be/i],
+    }
+    let detected: string | null = null
+    for (const [type, regexes] of Object.entries(patterns)) {
+      if (regexes.some(r => r.test(userMessage))) { detected = type; break }
+    }
+    if (!detected && latencyMs > 45000) detected = "slow_response"
+    if (!detected) return
+    const { count } = await supabase
+      .from("struggle_events")
+      .select("*", { count: "exact", head: true })
+      .eq("session_id", activeSessionId)
+      .eq("topic", topic)
+    const priorCount = count ?? 0
+    await supabase.from("struggle_events").insert({
+      user_id: userId,
+      session_id: activeSessionId,
+      topic,
+      struggle_type: detected,
+      message_index: currentMessageIndex,
+      response_latency_ms: latencyMs,
+      prior_struggle_count: priorCount
+    })
+    setStruggleCount(priorCount + 1)
+    if (priorCount >= 2) setRepeatedStruggleFlag(true)
+  }
+
   // ── Session logic ─────────────────────────────────────────────────────────
   async function startSession() {
     if (!topic.trim()) return
@@ -445,6 +536,10 @@ function SessionInner() {
     setMessages([...updatedMessages, { role: "assistant", content: "" }])
     setLoading(true)
 
+    const latencyMs = aiMessageTime ? Date.now() - aiMessageTime : 0
+    const currentIndex = messages.length
+    setMessageIndex(currentIndex)
+
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) { console.error("[sendMessage] No user"); setLoading(false); return }
 
@@ -457,10 +552,14 @@ function SessionInner() {
         setSessionId(newSessionId)
       }
 
+      const struggleNote = repeatedStruggleFlag
+        ? `CONTEXT FOR AI: Student has struggled with this concept ${struggleCount} times this session. Try a completely different explanation approach — use a diagram, analogy, or worked example.\n\nStudent message: `
+        : ""
+
       let fullResponse = ""
       await streamAI(
         {
-          message: userMessage,
+          message: struggleNote + userMessage,
           notes,
           topic,
           history: messages.slice(-12),
@@ -480,6 +579,8 @@ function SessionInner() {
         (full) => {
           fullResponse = full
           setLoading(false)
+          aiMessageTimeRef.current = Date.now()
+          latencyRecordedRef.current = false
           toast("↓ response received", { duration: 1000, style: { opacity: 0.6 } })
         },
         (err) => {
@@ -489,9 +590,13 @@ function SessionInner() {
         },
       )
 
+      setAiMessageTime(Date.now())
+
       if (currentSessionId && fullResponse) {
         logMessage(currentSessionId, user.id, "user", userMessage).catch(() => {})
         logMessage(currentSessionId, user.id, "assistant", fullResponse).catch(() => {})
+
+        await detectAndLogStruggle(userMessage, currentIndex, latencyMs, currentSessionId, user.id)
       }
     } catch (error) {
       console.error("[sendMessage] error:", error)
@@ -501,24 +606,58 @@ function SessionInner() {
 
   // ── End session with summary dialog (3H) ────────────────────────────────
   async function handleEndSession() {
-    if (!sessionId) { router.push("/dashboard"); return }
+    if (!sessionId && messages.length === 0) { router.push("/dashboard"); return }
     setShowSummaryDialog(true)
     try {
-      const summary = await fetchStreamAsText({
-        message: "The session is ending now. Give me an honest 3-sentence summary: exactly what moved, what is still shaky, and one specific thing to do next. No encouragement. Just truth.",
-        notes: "",
-        topic,
-        history: messages.slice(-12),
-        masteryContext,
-        totalSessions,
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) { router.push("/dashboard"); return }
+
+      // Get AI evaluation of the session
+      const evalRes = await fetch("/api/evaluate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ topic, messages })
       })
-      setSessionSummary(summary)
-      if (sessionId) {
-        await endSession(sessionId, summary)
-        toast.success("session saved")
+      const evaluation = await evalRes.json()
+
+      // Apply mastery delta
+      if (evaluation.mastery_delta !== undefined) {
+        const { applyMasteryDelta } = await import("@/services/mastery.service")
+        const newScore = await applyMasteryDelta(user.id, topic, "General", evaluation.mastery_delta)
+        if (evaluation.mastery_delta > 0) {
+          toast.success(`mastery +${evaluation.mastery_delta} → ${newScore}`)
+        } else if (evaluation.mastery_delta < 0) {
+          toast(`mastery ${evaluation.mastery_delta} → ${newScore}`, { icon: "→" })
+        }
       }
-    } catch {
-      toast.error("could not generate summary")
+
+      // Store full evaluation in Supabase
+      await supabase.from("mastery_evaluations").insert({
+        user_id: user.id,
+        session_id: sessionId,
+        topic,
+        mastery_delta: evaluation.mastery_delta,
+        understanding_level: evaluation.understanding_level,
+        can_apply: evaluation.can_apply,
+        can_explain: evaluation.can_explain,
+        specific_gaps: evaluation.specific_gaps,
+        specific_strengths: evaluation.specific_strengths,
+        confidence_accuracy: evaluation.confidence_accuracy,
+        recommended_next_topics: evaluation.recommended_next_topics,
+        session_quality: evaluation.session_quality,
+        honest_summary: evaluation.honest_summary
+      })
+
+      // End session in DB
+      if (sessionId) await endSession(sessionId, evaluation.honest_summary)
+
+      // Show honest summary in dialog
+      setSessionSummary(evaluation.honest_summary)
+      toast.success("session saved")
+    } catch (err) {
+      console.error("[handleEndSession]", err)
+      toast.error("could not save session")
+      setSessionSummary("Session complete.")
     }
   }
 
@@ -874,8 +1013,37 @@ function SessionInner() {
               type="text"
               placeholder="reply..."
               value={input}
-              onChange={e => setInput(e.target.value)}
-              onKeyDown={e => e.key === "Enter" && sendMessage()}
+              onChange={e => {
+                const newVal = e.target.value
+                // Draft event: detect large deletions (>10 chars removed)
+                if (prevInputRef.current.length - newVal.length > 10 && sessionId) {
+                  supabase.auth.getUser().then(({ data: { user } }) => {
+                    if (!user || !sessionId) return
+                    supabase.from("draft_events").insert({
+                      user_id: user.id, session_id: sessionId, topic,
+                      event_type: "large_deletion",
+                      chars_deleted: prevInputRef.current.length - newVal.length,
+                    }).then(() => {})
+                  }).catch(() => {})
+                }
+                prevInputRef.current = newVal
+                setInput(newVal)
+              }}
+              onKeyDown={e => {
+                // Response latency: first keypress after AI response
+                if (!latencyRecordedRef.current && aiMessageTimeRef.current > 0 && sessionId) {
+                  latencyRecordedRef.current = true
+                  const latencyMs = Date.now() - aiMessageTimeRef.current
+                  supabase.auth.getUser().then(({ data: { user } }) => {
+                    if (!user || !sessionId) return
+                    supabase.from("response_latency_events").insert({
+                      user_id: user.id, session_id: sessionId, topic,
+                      latency_ms: latencyMs,
+                    }).then(() => {})
+                  }).catch(() => {})
+                }
+                if (e.key === "Enter") sendMessage()
+              }}
               style={{ flex: 1, background: "transparent", color: "var(--text)", border: "none", padding: "16px 20px", fontFamily: "DM Mono, monospace", fontSize: "14px", outline: "none" }}
             />
             <VoiceButton onTranscript={(text) => setInput(prev => prev ? prev + " " + text : text)} />
@@ -946,11 +1114,50 @@ function SessionInner() {
             <Dialog.Title style={{ fontFamily: "DM Serif Display, serif", fontSize: "28px", color: "var(--text)", marginBottom: "24px", letterSpacing: "-0.02em" }}>
               Here is what happened.
             </Dialog.Title>
-            <div style={{ color: "var(--text-2)", fontSize: "15px", fontFamily: "DM Mono, monospace", lineHeight: "1.9", marginBottom: "40px", minHeight: "80px" }}>
+            <div style={{ color: "var(--text-2)", fontSize: "15px", fontFamily: "DM Mono, monospace", lineHeight: "1.9", marginBottom: "24px", minHeight: "80px" }}>
               {sessionSummary || (
                 <span style={{ color: "var(--text-3)", fontStyle: "italic" }}>generating honest summary...</span>
               )}
             </div>
+
+            {/* Feedback buttons */}
+            {sessionSummary && !feedbackGiven && (
+              <div style={{ display: "flex", gap: "8px", marginBottom: "24px" }}>
+                {[{ label: "IT HELPED", value: "positive" }, { label: "NOT REALLY", value: "negative" }].map(fb => (
+                  <button
+                    key={fb.value}
+                    onClick={() => {
+                      setFeedbackGiven(true)
+                      supabase.auth.getUser().then(({ data: { user } }) => {
+                        if (!user || !sessionId) return
+                        supabase.from("session_feedback").insert({
+                          user_id: user.id, session_id: sessionId, topic,
+                          feedback: fb.value,
+                        }).then(() => {})
+                      }).catch(() => {})
+                      toast(fb.value === "positive" ? "glad it helped" : "noted — we'll do better", { duration: 2000 })
+                    }}
+                    style={{
+                      flex: 1, background: "none",
+                      border: "1px solid var(--border)",
+                      color: "var(--text-3)", padding: "10px",
+                      fontFamily: "DM Mono, monospace", fontSize: "11px",
+                      letterSpacing: "0.1em", cursor: "pointer",
+                      transition: "color 0.2s, border-color 0.2s",
+                    }}
+                    onMouseOver={e => { e.currentTarget.style.color = "var(--text-2)"; e.currentTarget.style.borderColor = "var(--text-3)" }}
+                    onMouseOut={e => { e.currentTarget.style.color = "var(--text-3)"; e.currentTarget.style.borderColor = "var(--border)" }}
+                  >
+                    {fb.label}
+                  </button>
+                ))}
+              </div>
+            )}
+            {feedbackGiven && (
+              <p style={{ color: "var(--text-3)", fontSize: "11px", fontFamily: "DM Mono, monospace", letterSpacing: "0.08em", marginBottom: "24px" }}>
+                feedback recorded
+              </p>
+            )}
             <div style={{ display: "flex", gap: "12px" }}>
               <button
                 onClick={confirmEndSession}

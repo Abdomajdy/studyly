@@ -47,3 +47,18 @@ export async function logMessage(
     console.error('[logMessage] unexpected:', err)
   }
 }
+
+export async function loadSessionMessages(sessionId: string): Promise<{ role: "user" | "assistant"; content: string }[]> {
+  try {
+    const { data, error } = await supabase
+      .from("message_logs")
+      .select("role, content")
+      .eq("session_id", sessionId)
+      .order("created_at", { ascending: true })
+    if (error) { console.error("[loadSessionMessages]", error); return [] }
+    return (data ?? []) as { role: "user" | "assistant"; content: string }[]
+  } catch (err) {
+    console.error("[loadSessionMessages] unexpected:", err)
+    return []
+  }
+}
