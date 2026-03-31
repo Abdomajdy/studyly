@@ -19,6 +19,14 @@ import { toast } from "sonner"
 import Lottie from "lottie-react"
 import * as Tooltip from "@radix-ui/react-tooltip"
 import * as Dialog from "@radix-ui/react-dialog"
+import * as Slider from "@radix-ui/react-slider"
+import { Drawer } from "vaul"
+import { useInView } from "react-intersection-observer"
+import {
+  Send, Mic, MicOff, ArrowLeft, ArrowRight, Lock,
+  Upload, Copy, Check, X, Square, Share2, Clock, Zap,
+  BookOpen, Brain, Target, Loader2
+} from "lucide-react"
 import PlotlyChart from "@/components/PlotlyChart"
 import DesmosEmbed from "@/components/DesmosEmbed"
 import P5Sketch from "@/components/P5Sketch"
@@ -102,12 +110,11 @@ function CopyButton({ code }: { code: string }) {
         position: "absolute", top: "10px", right: "10px", zIndex: 1,
         background: "rgba(26,26,30,0.9)", border: "1px solid var(--border)",
         color: copied ? "var(--success)" : "var(--text-3)",
-        fontFamily: "DM Mono, monospace", fontSize: "10px",
-        letterSpacing: "0.08em", padding: "4px 10px",
-        cursor: "pointer", transition: "color 0.2s",
+        padding: "6px 8px", cursor: "pointer", transition: "color 0.2s",
+        display: "flex", alignItems: "center", gap: "4px",
       }}
     >
-      {copied ? "copied ✓" : "copy"}
+      {copied ? <Check size={13} /> : <Copy size={13} />}
     </button>
   )
 }
@@ -155,8 +162,6 @@ function VoiceButton({ onTranscript }: { onTranscript: (text: string) => void })
         border: "none",
         borderLeft: "1px solid var(--border)",
         color: listening ? "var(--danger)" : "var(--text-3)",
-        fontFamily: "DM Mono, monospace",
-        fontSize: "16px",
         padding: "16px 16px",
         cursor: "pointer",
         transition: "color 0.2s",
@@ -165,8 +170,22 @@ function VoiceButton({ onTranscript }: { onTranscript: (text: string) => void })
       }}
       title={listening ? "Stop recording" : "Voice input"}
     >
-      {listening ? "◉" : "🎤"}
+      {listening ? <MicOff size={16} /> : <Mic size={16} />}
     </button>
+  )
+}
+
+// ── Fade-in wrapper using intersection observer ──────────────────────────────
+function FadeInView({ children }: { children: React.ReactNode }) {
+  const { ref, inView } = useInView({ triggerOnce: true, threshold: 0.1 })
+  return (
+    <div ref={ref} style={{
+      opacity: inView ? 1 : 0,
+      transform: inView ? "translateY(0)" : "translateY(12px)",
+      transition: "opacity 0.4s ease, transform 0.4s ease",
+    }}>
+      {children}
+    </div>
   )
 }
 
@@ -197,14 +216,31 @@ async function streamAI(
 
   const decoder = new TextDecoder()
   let full = ""
+  let buffer = ""
+  let rafId: number | null = null
+
+  function flushBuffer() {
+    if (buffer.length > 0) {
+      onToken(buffer)
+      buffer = ""
+    }
+    rafId = null
+  }
 
   while (true) {
     const { done, value } = await reader.read()
     if (done) break
     const chunk = decoder.decode(value, { stream: true })
     full += chunk
-    onToken(chunk)
+    buffer += chunk
+    if (!rafId) {
+      rafId = requestAnimationFrame(flushBuffer)
+    }
   }
+
+  // flush any remaining buffer
+  if (rafId) cancelAnimationFrame(rafId)
+  if (buffer.length > 0) onToken(buffer)
 
   onDone(full)
 }
@@ -783,7 +819,7 @@ function SessionInner() {
               transition: "all 0.2s"
             }}
           >
-            START SESSION →
+            <span style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}><Target size={14} /> START SESSION</span>
           </button>
           <button
             onClick={() => { setGoalStep(false); handleStartWithGoal() }}
@@ -791,10 +827,11 @@ function SessionInner() {
               background: "none", border: "none", color: "var(--text-3)",
               fontFamily: "DM Mono, monospace", fontSize: "12px", cursor: "pointer",
               letterSpacing: "0.05em", width: "100%", padding: "8px",
-              textTransform: "uppercase"
+              textTransform: "uppercase", display: "flex", alignItems: "center",
+              justifyContent: "center", gap: "6px"
             }}
           >
-            ← SKIP
+            <ArrowLeft size={12} /> SKIP
           </button>
         </div>
       </div>
@@ -804,7 +841,7 @@ function SessionInner() {
   // ── Topic entry screen ────────────────────────────────────────────────────
   if (!topicSet) {
     return (
-      <div style={{ minHeight: "100vh", background: "var(--bg)", display: "flex", alignItems: "center", justifyContent: "center", padding: "24px", paddingTop: "76px", opacity: visible ? 1 : 0, transition: "opacity 0.6s ease" }}>
+      <div style={{ minHeight: "100vh", background: "var(--bg)", display: "flex", alignItems: "center", justifyContent: "center", paddingTop: "76px", paddingRight: "24px", paddingBottom: "24px", paddingLeft: "24px", opacity: visible ? 1 : 0, transition: "opacity 0.6s ease" }}>
         <div style={{ width: "100%", maxWidth: "520px" }}>
           <p style={{ color: "var(--accent)", fontSize: "11px", letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: "20px", fontFamily: "DM Mono, monospace" }}>SESSION</p>
           <h1 style={{ fontFamily: "DM Serif Display, serif", fontSize: "36px", color: "var(--text)", marginBottom: "8px", letterSpacing: "-0.02em" }}>What are we locking in on?</h1>
@@ -832,9 +869,9 @@ function SessionInner() {
             </p>
             <div style={{ display: "flex", gap: "6px" }}>
               {([
-                { key: "deep" as const, label: "Deep Focus", desc: "strict, harder follow-ups" },
-                { key: "casual" as const, label: "Casual", desc: "conversational, more hints" },
-                { key: "cram" as const, label: "Exam Cram", desc: "rapid-fire, no hand-holding" },
+                { key: "deep" as const, label: "Deep Focus", desc: "strict, harder follow-ups", icon: Brain },
+                { key: "casual" as const, label: "Casual", desc: "conversational, more hints", icon: BookOpen },
+                { key: "cram" as const, label: "Exam Cram", desc: "rapid-fire, no hand-holding", icon: Zap },
               ]).map(mode => (
                 <button
                   key={mode.key}
@@ -849,13 +886,15 @@ function SessionInner() {
                     textAlign: "left",
                   }}
                 >
-                  <p style={{
+                  <div style={{
+                    display: "flex", alignItems: "center", gap: "6px",
                     color: studyMode === mode.key ? "var(--text)" : "var(--text-2)",
                     fontSize: "12px", fontFamily: "DM Mono, monospace",
                     marginBottom: "3px",
                   }}>
+                    <mode.icon size={13} />
                     {mode.label}
-                  </p>
+                  </div>
                   <p style={{
                     color: "var(--text-3)", fontSize: "10px", fontFamily: "DM Mono, monospace",
                   }}>
@@ -891,12 +930,12 @@ function SessionInner() {
               letterSpacing: "0.08em",
               textTransform: "uppercase"
             }}>
-              {notesUploading ? "EXTRACTING..." : notesFilename ? `✓ ${notesFilename}` : isDragActive ? "DROP IT" : "↑ DROP LECTURE NOTES OR PAST PAPER (PDF)"}
+              {notesUploading ? <><Loader2 size={12} style={{ display: "inline", animation: "spin 1s linear infinite" }} /> EXTRACTING...</> : notesFilename ? <><Check size={12} style={{ display: "inline" }} /> {notesFilename}</> : isDragActive ? "DROP IT" : <><Upload size={12} style={{ display: "inline" }} /> DROP LECTURE NOTES OR PAST PAPER (PDF)</>}
             </p>
           </div>
 
-          <button onClick={() => { if (!topic.trim()) return; setGoalStep(true) }} disabled={!topic.trim()} style={{ width: "100%", background: topic.trim() ? "var(--text)" : "var(--bg-3)", color: topic.trim() ? "var(--bg)" : "var(--text-3)", border: "none", padding: "16px", fontFamily: "DM Mono, monospace", fontSize: "13px", fontWeight: 500, cursor: topic.trim() ? "pointer" : "not-allowed", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "16px", transition: "all 0.2s" }}>LOCK IN →</button>
-          <button onClick={() => router.push("/dashboard")} style={{ background: "none", border: "none", color: "var(--text-3)", fontFamily: "DM Mono, monospace", fontSize: "12px", cursor: "pointer", letterSpacing: "0.05em", width: "100%", padding: "8px", textTransform: "uppercase" }}>← BACK</button>
+          <button onClick={() => { if (!topic.trim()) return; setGoalStep(true) }} disabled={!topic.trim()} style={{ width: "100%", background: topic.trim() ? "var(--text)" : "var(--bg-3)", color: topic.trim() ? "var(--bg)" : "var(--text-3)", border: "none", padding: "16px", fontFamily: "DM Mono, monospace", fontSize: "13px", fontWeight: 500, cursor: topic.trim() ? "pointer" : "not-allowed", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "16px", transition: "all 0.2s", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}><Lock size={14} /> LOCK IN</button>
+          <button onClick={() => router.push("/dashboard")} style={{ background: "none", border: "none", color: "var(--text-3)", fontFamily: "DM Mono, monospace", fontSize: "12px", cursor: "pointer", letterSpacing: "0.05em", width: "100%", padding: "8px", textTransform: "uppercase", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}><ArrowLeft size={12} /> BACK</button>
         </div>
       </div>
     )
@@ -941,14 +980,19 @@ function SessionInner() {
             }}>RESUMED</span>
           )}
         </div>
-        <p style={{
+        <div style={{
           position: "absolute", left: "50%", transform: "translateX(-50%)",
-          fontFamily: "DM Mono, monospace", fontSize: "12px", fontWeight: 400,
-          color: "var(--text-3)", letterSpacing: "0.1em",
-          fontVariantNumeric: "tabular-nums",
+          display: "flex", alignItems: "center", gap: "6px",
         }}>
-          {formatTime(elapsed)}
-        </p>
+          <Clock size={12} style={{ color: "var(--text-3)" }} />
+          <p style={{
+            fontFamily: "DM Mono, monospace", fontSize: "12px", fontWeight: 400,
+            color: "var(--text-3)", letterSpacing: "0.1em",
+            fontVariantNumeric: "tabular-nums",
+          }}>
+            {formatTime(elapsed)}
+          </p>
+        </div>
 
         {/* END SESSION with tooltip (3K) */}
         <Tooltip.Provider delayDuration={300}>
@@ -959,12 +1003,13 @@ function SessionInner() {
                 color: "var(--text-3)", fontFamily: "DM Mono, monospace",
                 fontSize: "11px", cursor: "pointer",
                 letterSpacing: "0.12em", textTransform: "uppercase",
-                transition: "color 0.25s"
+                transition: "color 0.25s",
+                display: "flex", alignItems: "center", gap: "6px",
               }}
                 onMouseOver={e => (e.currentTarget.style.color = "var(--danger)")}
                 onMouseOut={e => (e.currentTarget.style.color = "var(--text-3)")}
               >
-                END SESSION
+                <Square size={11} /> END SESSION
               </button>
             </Tooltip.Trigger>
             <Tooltip.Portal>
@@ -987,14 +1032,15 @@ function SessionInner() {
 
       {/* Messages — scrollable area between fixed header and footer */}
       <div className="session-messages" style={{ flex: 1, overflowY: "auto", paddingTop: "72px", paddingBottom: "100px", position: "relative", zIndex: 1 }}>
-        <div style={{ maxWidth: "760px", margin: "0 auto", width: "100%", padding: "32px 24px", display: "flex", flexDirection: "column", gap: "40px" }}>
+        <div style={{ maxWidth: "1100px", margin: "0 auto", width: "100%", padding: "32px 32px", display: "flex", flexDirection: "column", gap: "40px" }}>
           <AnimatePresence initial={false}>
             {messages.map((msg, i) => {
               const isStreaming = loading && i === messages.length - 1 && msg.role === "assistant"
-              return (
+              const isRecent = i >= messages.length - 2
+              const bubble = (
               <motion.div
                 key={`${msg.role}-${i}`}
-                initial={{ opacity: 0, y: 8 }}
+                initial={isRecent ? { opacity: 0, y: 8 } : false}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.35, ease: [0, 0, 0.2, 1] }}
                 layout={false}
@@ -1025,6 +1071,24 @@ function SessionInner() {
                             <p style={{ marginBottom: "16px", lineHeight: "1.9", fontSize: "15px", fontFamily: "DM Mono, monospace", fontWeight: 300, letterSpacing: "0.01em", color: "var(--text)" }}>
                               {children}
                             </p>
+                          ),
+                          h1: ({ children }) => (
+                            <h1 style={{ fontFamily: "DM Serif Display, serif", fontSize: "22px", color: "#c8a96e", marginBottom: "12px", marginTop: "20px", letterSpacing: "-0.01em" }}>{children}</h1>
+                          ),
+                          h2: ({ children }) => (
+                            <h2 style={{ fontFamily: "DM Serif Display, serif", fontSize: "19px", color: "#c8a96e", marginBottom: "10px", marginTop: "18px", letterSpacing: "-0.01em" }}>{children}</h2>
+                          ),
+                          h3: ({ children }) => (
+                            <h3 style={{ fontFamily: "DM Mono, monospace", fontSize: "15px", color: "#7eb8da", marginBottom: "8px", marginTop: "16px", fontWeight: 500, letterSpacing: "0.02em" }}>{children}</h3>
+                          ),
+                          em: ({ children }) => (
+                            <em style={{ color: "#a8a0d2", fontStyle: "italic" }}>{children}</em>
+                          ),
+                          hr: () => (
+                            <hr style={{ border: "none", borderTop: "1px solid var(--border)", margin: "20px 0" }} />
+                          ),
+                          a: ({ children, href }) => (
+                            <a href={href} target="_blank" rel="noopener noreferrer" style={{ color: "#7eb8da", textDecoration: "underline", textUnderlineOffset: "3px" }}>{children}</a>
                           ),
                           code: ({ children, className }) => {
                             const match    = /language-(\w+)/.exec(className ?? "")
@@ -1113,7 +1177,9 @@ function SessionInner() {
                             <ol style={{ paddingLeft: "20px", marginBottom: "16px", display: "flex", flexDirection: "column", gap: "8px" }}>{children}</ol>
                           ),
                           li: ({ children }) => (
-                            <li style={{ lineHeight: "1.9", fontSize: "15px", fontFamily: "DM Mono, monospace", fontWeight: 300, color: "var(--text)" }}>{children}</li>
+                            <li style={{ lineHeight: "1.9", fontSize: "15px", fontFamily: "DM Mono, monospace", fontWeight: 300, color: "var(--text)" }}>
+                              <span style={{ color: "#5a9e6f", marginRight: "4px" }}>›</span>{children}
+                            </li>
                           ),
                           table: ({ children }) => (
                             <div style={{ overflowX: "auto", marginBottom: "16px", WebkitOverflowScrolling: "touch" as React.CSSProperties["WebkitOverflowScrolling"] }}>
@@ -1123,23 +1189,23 @@ function SessionInner() {
                             </div>
                           ),
                           th: ({ children }) => (
-                            <th style={{ padding: "10px 14px", borderBottom: "1px solid var(--border)", color: "var(--accent)", textAlign: "left", fontWeight: 500, letterSpacing: "0.05em" }}>{children}</th>
+                            <th style={{ padding: "10px 14px", borderBottom: "1px solid var(--border)", color: "#e8c872", textAlign: "left", fontWeight: 500, letterSpacing: "0.05em", background: "rgba(200,169,110,0.05)" }}>{children}</th>
                           ),
                           td: ({ children }) => (
-                            <td style={{ padding: "10px 14px", borderBottom: "1px solid var(--bg-3)", color: "var(--text-2)", lineHeight: "1.6" }}>{children}</td>
+                            <td style={{ padding: "10px 14px", borderBottom: "1px solid var(--bg-3)", color: "var(--text)", lineHeight: "1.6" }}>{children}</td>
                           ),
                           blockquote: ({ children }) => (
                             <div style={{
-                              background: "var(--bg-3)", borderLeft: "3px solid var(--accent)",
+                              background: "rgba(200,169,110,0.06)", borderLeft: "3px solid var(--accent)",
                               padding: "18px 22px", marginBottom: "16px",
                               fontSize: "15px", fontFamily: "DM Mono, monospace", fontWeight: 300,
-                              color: "var(--text)", lineHeight: "1.8",
+                              color: "#e8dcc8", lineHeight: "1.8",
                             }}>
                               {children}
                             </div>
                           ),
                           strong: ({ children }) => (
-                            <strong style={{ color: "var(--text)", fontWeight: 500 }}>{children}</strong>
+                            <strong style={{ color: "#e8c872", fontWeight: 500 }}>{children}</strong>
                           ),
                         }}
                       >
@@ -1152,6 +1218,7 @@ function SessionInner() {
                 </div>
               </motion.div>
               )
+              return isRecent ? bubble : <FadeInView key={`fade-${msg.role}-${i}`}>{bubble}</FadeInView>
             })}
           </AnimatePresence>
 
@@ -1192,7 +1259,7 @@ function SessionInner() {
         background: "rgba(10,10,11,0.92)", backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
         borderTop: "1px solid var(--border)",
       }}>
-        <div style={{ maxWidth: "760px", margin: "0 auto", width: "100%", padding: "16px 24px" }}>
+        <div style={{ maxWidth: "1100px", margin: "0 auto", width: "100%", padding: "16px 32px" }}>
           <div className="session-input-bar" style={{
             display: "flex",
             border: "1px solid var(--border)",
@@ -1243,12 +1310,12 @@ function SessionInner() {
                 background: input.trim() && !loading ? "var(--text)" : "var(--bg-3)",
                 color: input.trim() && !loading ? "var(--bg)" : "var(--text-3)",
                 border: "none", borderLeft: "1px solid var(--border)",
-                padding: "16px 24px", fontFamily: "DM Mono, monospace", fontSize: "13px", fontWeight: 500,
-                letterSpacing: "0.08em",
+                padding: "16px 20px",
                 cursor: input.trim() && !loading ? "pointer" : "not-allowed",
                 transition: "all 0.2s",
+                display: "flex", alignItems: "center",
               }}
-            >→</button>
+            ><Send size={16} /></button>
           </div>
           {/* Hotkey hint (3L) */}
           <AnimatePresence>
@@ -1326,36 +1393,40 @@ function SessionInner() {
                 <p style={{ color: "var(--text-3)", fontSize: "10px", letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: "16px", fontFamily: "DM Mono, monospace" }}>
                   DID THIS SESSION HELP?
                 </p>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginBottom: "20px" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "24px", marginBottom: "20px" }}>
                   <div>
-                    <p style={{ color: "var(--text-3)", fontSize: "10px", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: "8px", fontFamily: "DM Mono, monospace" }}>CONFIDENCE BEFORE</p>
-                    <div style={{ display: "flex", gap: "6px" }}>
-                      {[1,2,3,4,5].map(n => (
-                        <button key={n} onClick={() => setConfidenceBefore(n)} style={{
-                          width: "32px", height: "32px",
-                          background: confidenceBefore === n ? "var(--accent)" : "var(--bg-3)",
-                          border: `1px solid ${confidenceBefore === n ? "var(--accent)" : "var(--border)"}`,
-                          color: confidenceBefore === n ? "var(--bg)" : "var(--text-3)",
-                          fontFamily: "DM Mono, monospace", fontSize: "12px",
-                          cursor: "pointer", transition: "all 0.15s"
-                        }}>{n}</button>
-                      ))}
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+                      <p style={{ color: "var(--text-3)", fontSize: "10px", letterSpacing: "0.1em", textTransform: "uppercase", fontFamily: "DM Mono, monospace" }}>CONFIDENCE BEFORE</p>
+                      <span style={{ color: "var(--accent)", fontSize: "16px", fontFamily: "DM Serif Display, serif" }}>{confidenceBefore ?? "—"}</span>
                     </div>
+                    <Slider.Root
+                      value={confidenceBefore ? [confidenceBefore] : [3]}
+                      onValueChange={([v]) => setConfidenceBefore(v)}
+                      min={1} max={5} step={1}
+                      style={{ position: "relative", display: "flex", alignItems: "center", width: "100%", height: "20px", cursor: "pointer" }}
+                    >
+                      <Slider.Track style={{ position: "relative", flexGrow: 1, height: "3px", background: "var(--bg-3)", borderRadius: "2px" }}>
+                        <Slider.Range style={{ position: "absolute", height: "100%", background: "var(--accent)", borderRadius: "2px" }} />
+                      </Slider.Track>
+                      <Slider.Thumb style={{ display: "block", width: "16px", height: "16px", background: "var(--accent)", border: "2px solid var(--bg)", borderRadius: "50%", outline: "none", cursor: "grab" }} />
+                    </Slider.Root>
                   </div>
                   <div>
-                    <p style={{ color: "var(--text-3)", fontSize: "10px", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: "8px", fontFamily: "DM Mono, monospace" }}>CONFIDENCE AFTER</p>
-                    <div style={{ display: "flex", gap: "6px" }}>
-                      {[1,2,3,4,5].map(n => (
-                        <button key={n} onClick={() => setConfidenceAfter(n)} style={{
-                          width: "32px", height: "32px",
-                          background: confidenceAfter === n ? "var(--accent)" : "var(--bg-3)",
-                          border: `1px solid ${confidenceAfter === n ? "var(--accent)" : "var(--border)"}`,
-                          color: confidenceAfter === n ? "var(--bg)" : "var(--text-3)",
-                          fontFamily: "DM Mono, monospace", fontSize: "12px",
-                          cursor: "pointer", transition: "all 0.15s"
-                        }}>{n}</button>
-                      ))}
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+                      <p style={{ color: "var(--text-3)", fontSize: "10px", letterSpacing: "0.1em", textTransform: "uppercase", fontFamily: "DM Mono, monospace" }}>CONFIDENCE AFTER</p>
+                      <span style={{ color: "#5a9e6f", fontSize: "16px", fontFamily: "DM Serif Display, serif" }}>{confidenceAfter ?? "—"}</span>
                     </div>
+                    <Slider.Root
+                      value={confidenceAfter ? [confidenceAfter] : [3]}
+                      onValueChange={([v]) => setConfidenceAfter(v)}
+                      min={1} max={5} step={1}
+                      style={{ position: "relative", display: "flex", alignItems: "center", width: "100%", height: "20px", cursor: "pointer" }}
+                    >
+                      <Slider.Track style={{ position: "relative", flexGrow: 1, height: "3px", background: "var(--bg-3)", borderRadius: "2px" }}>
+                        <Slider.Range style={{ position: "absolute", height: "100%", background: "#5a9e6f", borderRadius: "2px" }} />
+                      </Slider.Track>
+                      <Slider.Thumb style={{ display: "block", width: "16px", height: "16px", background: "#5a9e6f", border: "2px solid var(--bg)", borderRadius: "50%", outline: "none", cursor: "grab" }} />
+                    </Slider.Root>
                   </div>
                 </div>
                 <div style={{ display: "flex", gap: "12px" }}>
@@ -1371,7 +1442,7 @@ function SessionInner() {
                     onMouseOver={e => { e.currentTarget.style.background = "rgba(90,158,111,0.1)" }}
                     onMouseOut={e => { e.currentTarget.style.background = "none" }}
                   >
-                    IT HELPED
+                    <Check size={14} style={{ display: "inline" }} /> IT HELPED
                   </button>
                   <button
                     onClick={() => submitFeedback(false)}
@@ -1385,13 +1456,13 @@ function SessionInner() {
                     onMouseOver={e => { e.currentTarget.style.borderColor = "var(--danger)"; e.currentTarget.style.color = "var(--danger)" }}
                     onMouseOut={e => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.color = "var(--text-3)" }}
                   >
-                    NOT REALLY
+                    <X size={14} style={{ display: "inline" }} /> NOT REALLY
                   </button>
                 </div>
               </div>
             ) : (
-              <p style={{ color: "var(--text-3)", fontSize: "12px", fontFamily: "DM Mono, monospace", marginBottom: "24px", letterSpacing: "0.05em" }}>
-                feedback saved. this makes studyly better.
+              <p style={{ color: "var(--text-3)", fontSize: "12px", fontFamily: "DM Mono, monospace", marginBottom: "24px", letterSpacing: "0.05em", display: "flex", alignItems: "center", gap: "6px" }}>
+                <Check size={12} /> feedback saved. this makes studyly better.
               </p>
             )}
             <div style={{ display: "flex", gap: "12px" }}>
@@ -1408,7 +1479,7 @@ function SessionInner() {
                   transition: "all 0.2s"
                 }}
               >
-                BACK TO DASHBOARD →
+                <span style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}><ArrowRight size={14} /> BACK TO DASHBOARD</span>
               </button>
               {recapData && (
                 <button
@@ -1418,12 +1489,13 @@ function SessionInner() {
                     color: "var(--accent)", padding: "16px 20px",
                     fontFamily: "DM Mono, monospace", fontSize: "13px",
                     letterSpacing: "0.08em", textTransform: "uppercase",
-                    cursor: "pointer", transition: "all 0.2s"
+                    cursor: "pointer", transition: "all 0.2s",
+                    display: "flex", alignItems: "center", gap: "6px",
                   }}
                   onMouseOver={e => { e.currentTarget.style.background = "rgba(200,169,110,0.08)" }}
                   onMouseOut={e => { e.currentTarget.style.background = "none" }}
                 >
-                  SHARE
+                  <Share2 size={14} /> SHARE
                 </button>
               )}
               <Dialog.Close asChild>
@@ -1446,6 +1518,10 @@ function SessionInner() {
       </Dialog.Root>
 
       <style>{`
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to   { transform: rotate(360deg); }
+        }
         @keyframes pulse {
           0%, 100% { opacity: 1; }
           50%      { opacity: 0.3; }
