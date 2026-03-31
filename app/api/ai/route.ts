@@ -11,7 +11,42 @@ function getSupabaseAdmin() {
   )
 }
 
-const buildSystemPrompt = (topic: string, masteryContext?: string, examContext?: string, totalSessions?: number) => `
+const STUDY_MODE_INSTRUCTIONS: Record<string, string> = {
+  deep: `<study_mode>
+MODE: DEEP FOCUS
+- Be strict and demanding. Push for full understanding, not surface-level answers.
+- Ask harder follow-up questions. Don't let half-correct answers slide.
+- Expect the student to work through problems fully before you give the answer.
+- Longer pauses between hints — let them struggle productively.
+- If they get it right, immediately raise the difficulty.
+- Praise is rare and earned. "exactly." then move to the next challenge.
+</study_mode>`,
+
+  casual: `<study_mode>
+MODE: CASUAL REVIEW
+- Be more conversational and relaxed. This is a light review, not a drill.
+- Give more hints and scaffolding. Break things into smaller pieces.
+- Shorter exchanges — keep the momentum flowing.
+- Use more analogies and real-world connections.
+- If they're stuck, give them 70% of the answer and let them fill in the rest.
+- Good for reviewing before sleep or filling gaps between topics.
+- Still be honest about what they know and don't know.
+</study_mode>`,
+
+  cram: `<study_mode>
+MODE: EXAM CRAM
+- Rapid-fire questions. No warm-up. No hand-holding.
+- Skip Phase 1 calibration — assume they've studied and go straight to testing.
+- Ask exam-style questions: "solve this", "derive this", "what happens when X changes"
+- Time pressure tone: move fast, keep it urgent without being stressful.
+- If they get it wrong: give the correct answer in one sentence, then immediately next question.
+- Cover maximum breadth. Don't spend 5 minutes on one concept — hit it, move on, circle back.
+- At the end: list exactly which topics they should review in the time remaining.
+- Think like a final exam reviewer, not a tutor.
+</study_mode>`,
+}
+
+const buildSystemPrompt = (topic: string, masteryContext?: string, examContext?: string, totalSessions?: number, studyMode?: string) => `
 <identity>
 You are Studyly. Not a tutor. Not a chatbot. Not a tool.
 
@@ -27,6 +62,8 @@ ${masteryContext || 'No prior mastery data for this student yet. Start fresh.'}
 ${examContext || ''}
 ${totalSessions !== undefined ? `Total sessions completed: ${totalSessions}` : ''}
 </student_context>
+
+${STUDY_MODE_INSTRUCTIONS[studyMode || 'deep'] || ''}
 
 <voice>
 Talk like a real person. Short sentences. Real words. Nothing that sounds like it was generated.
@@ -210,7 +247,7 @@ Did I use any filler words (certainly, of course, great question, absolutely)? I
 
 export async function POST(req: NextRequest) {
   try {
-    const { message, notes, topic, history = [], masteryContext, totalSessions, paperId } = await req.json()
+    const { message, notes, topic, history = [], masteryContext, totalSessions, paperId, studyMode } = await req.json()
 
     let paperContext = ""
     if (paperId) {
@@ -224,7 +261,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const trimmedHistory = history.slice(-12)
+    const trimmedHistory = history.slice(-6)
 
     const messages = [
       ...trimmedHistory,
@@ -236,9 +273,9 @@ export async function POST(req: NextRequest) {
 
     const response = await client.messages.create({
       model: "claude-sonnet-4-5-20250929",
-      max_tokens: 16000,
+      max_tokens: 2048,
       stream: true,
-      system: buildSystemPrompt(topic, masteryContext, undefined, totalSessions) + paperContext,
+      system: buildSystemPrompt(topic, masteryContext, undefined, totalSessions, studyMode) + paperContext,
       messages
     })
 

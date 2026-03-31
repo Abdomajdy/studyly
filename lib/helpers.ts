@@ -21,6 +21,24 @@ export type UserCourse = {
   exam_date: string | null
 }
 
+// ── Social types ────────────────────────────────────────────────────────────
+export type FriendWithPresence = {
+  id: string            // friendship row id
+  user_id: string       // the friend's user id
+  username: string
+  status: "online" | "studying" | "idle" | "offline"
+  current_topic: string | null
+  current_course: string | null
+}
+
+export type StudyGroupSummary = {
+  id: string
+  name: string
+  course: string
+  member_count: number
+  online_count: number
+}
+
 // ── Score helpers ───────────────────────────────────────────────────────────
 export function getScoreColor(score: number): string {
   if (score >= 70) return "var(--success)"

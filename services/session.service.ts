@@ -1,11 +1,11 @@
 import { supabase } from '@/lib/supabase'
 
-export async function createSession(userId: string, topicName: string): Promise<string | null> {
+export async function createSession(userId: string, topicName: string, course?: string): Promise<string | null> {
   try {
-    console.log('[createSession] attempting insert:', { userId, topicName })
+    console.log('[createSession] attempting insert:', { userId, topicName, course })
     const { data, error } = await supabase
       .from('study_sessions')
-      .insert({ user_id: userId, topic: topicName })
+      .insert({ user_id: userId, topic: topicName, course: course || null })
       .select()
       .single()
     if (error) {

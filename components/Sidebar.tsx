@@ -1,32 +1,26 @@
 "use client"
 import { useRouter } from "next/navigation"
 import { supabase } from "@/lib/supabase"
-import {
-  type UserCourse,
-  type RecentSession,
-  formatDate,
-  formatExamDate,
-  getExamUrgencyColor,
-} from "@/lib/helpers"
+import type { FriendWithPresence, StudyGroupSummary } from "@/lib/helpers"
 
 type SidebarProps = {
-  activePage: "dashboard" | "sessions" | "exam-mode" | "past-papers" | "analytics" | "settings"
-  username: string
-  courses: UserCourse[]
-  recentSessions: RecentSession[]
+  activePage: "dashboard" | "sessions" | "past-papers" | "analytics" | "settings" | "groups"
   stats: {
     totalSessions: number
     masteryCount: number
     weakCount: number
     avgMastery: number | null
   }
-  examUrgent?: boolean
+  friends?: FriendWithPresence[]
+  groups?: StudyGroupSummary[]
+  pendingCount?: number
+  onAddFriend?: () => void
+  onCreateGroup?: () => void
 }
 
 const NAV_ITEMS: { key: SidebarProps["activePage"]; label: string; href: string }[] = [
   { key: "dashboard",    label: "dashboard",    href: "/dashboard" },
   { key: "sessions",     label: "sessions",     href: "/sessions" },
-  { key: "exam-mode",    label: "exam mode",    href: "/exam-mode" },
   { key: "past-papers",  label: "past papers",  href: "/past-papers" },
   { key: "analytics",    label: "analytics",    href: "/analytics" },
   { key: "settings",     label: "settings",     href: "/settings" },
@@ -38,7 +32,14 @@ function getScoreColor(score: number): string {
   return "var(--danger)"
 }
 
-export default function Sidebar({ activePage, username, courses, recentSessions, stats, examUrgent }: SidebarProps) {
+function statusColor(status: string): string {
+  if (status === "studying") return "var(--success)"
+  if (status === "online") return "var(--success)"
+  if (status === "idle") return "var(--accent)"
+  return "var(--text-3)"
+}
+
+export default function Sidebar({ activePage, stats, friends = [], groups = [], pendingCount = 0, onAddFriend, onCreateGroup }: SidebarProps) {
   const router = useRouter()
 
   return (
@@ -72,7 +73,7 @@ export default function Sidebar({ activePage, username, courses, recentSessions,
               onMouseOver={e => { if (!isActive) e.currentTarget.style.background = "var(--bg-2)" }}
               onMouseOut={e => { if (!isActive) e.currentTarget.style.background = "transparent" }}
             >
-              <span style={{ fontSize: "11px", color: isActive ? "var(--text-3)" : "var(--text-3)" }}>
+              <span style={{ fontSize: "11px", color: "var(--text-3)" }}>
                 {isActive ? "◆" : "○"}
               </span>
               <span style={{
@@ -83,61 +84,166 @@ export default function Sidebar({ activePage, username, courses, recentSessions,
               }}>
                 {item.label}
               </span>
-              {item.key === "exam-mode" && examUrgent && (
-                <span style={{
-                  width: "6px", height: "6px", borderRadius: "50%",
-                  background: "var(--danger)", display: "inline-block",
-                  animation: "examPulse 2s infinite",
-                }} />
-              )}
             </div>
           )
         })}
       </div>
 
-      {/* Courses */}
+      {/* ── Study Groups ─────────────────────────────────────────────── */}
       <div style={{ padding: "20px 24px", borderBottom: "1px solid var(--border)" }}>
-        <p style={{ color: "var(--text-3)", fontSize: "10px", letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: "14px" }}>courses</p>
-        {courses.length === 0 ? (
-          <p style={{ color: "var(--text-3)", fontSize: "12px", fontStyle: "italic", lineHeight: "1.6" }}>no courses yet — add one from settings</p>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px" }}>
+          <p style={{ color: "var(--text-3)", fontSize: "10px", letterSpacing: "0.15em", textTransform: "uppercase" }}>study groups</p>
+          <button
+            onClick={onCreateGroup}
+            style={{
+              background: "none", border: "none", color: "var(--text-3)",
+              fontSize: "14px", cursor: "pointer", padding: "0 2px",
+              transition: "color 0.15s", lineHeight: 1,
+            }}
+            onMouseOver={e => (e.currentTarget.style.color = "var(--accent)")}
+            onMouseOut={e => (e.currentTarget.style.color = "var(--text-3)")}
+            title="Create or join a group"
+          >
+            +
+          </button>
+        </div>
+
+        {groups.length === 0 ? (
+          <div style={{ border: "1px dashed var(--border)", padding: "16px 14px", textAlign: "center" }}>
+            <p style={{ color: "var(--text-3)", fontSize: "11px", fontFamily: "DM Mono, monospace", lineHeight: 1.6 }}>
+              no groups yet
+            </p>
+            <p style={{ color: "var(--text-3)", fontSize: "10px", fontFamily: "DM Mono, monospace", marginTop: "4px", fontStyle: "italic" }}>
+              create one to study together
+            </p>
+          </div>
         ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-            {courses.map(course => (
-              <div key={course.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <div>
-                  <p style={{ color: "var(--text-2)", fontSize: "12px", fontFamily: "DM Mono, monospace", marginBottom: "2px" }}>
-                    {course.course_code || course.course_name}
-                  </p>
-                  {course.course_code && (
-                    <p style={{ color: "var(--text-3)", fontSize: "11px" }}>{course.course_name}</p>
-                  )}
-                </div>
-                {course.exam_date && (
-                  <span style={{ fontSize: "11px", color: getExamUrgencyColor(course.exam_date), fontFamily: "DM Mono, monospace", letterSpacing: "0.05em" }}>
-                    {formatExamDate(course.exam_date)}
+          <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+            {groups.map(group => (
+              <div
+                key={group.id}
+                onClick={() => router.push(`/groups?id=${group.id}`)}
+                style={{
+                  display: "flex", alignItems: "center", gap: "10px",
+                  padding: "8px 10px", cursor: "pointer",
+                  transition: "background 0.15s", background: "transparent",
+                }}
+                onMouseOver={e => (e.currentTarget.style.background = "var(--bg-2)")}
+                onMouseOut={e => (e.currentTarget.style.background = "transparent")}
+              >
+                <div style={{
+                  width: "8px", height: "8px", borderRadius: "50%",
+                  background: group.online_count > 0 ? "var(--success)" : "var(--border)",
+                  transition: "background 0.3s",
+                }} />
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <span style={{
+                    fontSize: "12px", fontFamily: "DM Mono, monospace", color: "var(--text-2)",
+                    display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                  }}>
+                    {group.name}
                   </span>
-                )}
+                </div>
+                <span style={{ fontSize: "10px", color: "var(--text-3)", fontFamily: "DM Mono, monospace", flexShrink: 0 }}>
+                  {group.online_count > 0 ? `${group.online_count}/${group.member_count}` : group.member_count}
+                </span>
               </div>
             ))}
           </div>
         )}
       </div>
 
-      {/* Recent Sessions */}
+      {/* ── Friends ──────────────────────────────────────────────────── */}
       <div style={{ padding: "20px 24px", borderBottom: "1px solid var(--border)" }}>
-        <p style={{ color: "var(--text-3)", fontSize: "10px", letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: "14px" }}>recent sessions</p>
-        {recentSessions.length === 0 ? (
-          <p style={{ color: "var(--text-3)", fontSize: "12px", fontStyle: "italic", lineHeight: "1.6" }}>no sessions yet</p>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px" }}>
+          <p style={{ color: "var(--text-3)", fontSize: "10px", letterSpacing: "0.15em", textTransform: "uppercase" }}>friends</p>
+          <button
+            onClick={onAddFriend}
+            style={{
+              background: "none", border: "none", color: "var(--text-3)",
+              fontSize: "14px", cursor: "pointer", padding: "0 2px",
+              transition: "color 0.15s", lineHeight: 1, position: "relative",
+            }}
+            onMouseOver={e => (e.currentTarget.style.color = "var(--accent)")}
+            onMouseOut={e => (e.currentTarget.style.color = "var(--text-3)")}
+            title="Add a friend"
+          >
+            +
+            {pendingCount > 0 && (
+              <span style={{
+                position: "absolute", top: -4, right: -6,
+                width: "14px", height: "14px", borderRadius: "50%",
+                background: "var(--accent)", color: "var(--bg)",
+                fontSize: "8px", fontFamily: "DM Mono, monospace",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                fontWeight: 700,
+              }}>
+                {pendingCount}
+              </span>
+            )}
+          </button>
+        </div>
+
+        {friends.length === 0 ? (
+          <div style={{ border: "1px dashed var(--border)", padding: "16px 14px", textAlign: "center" }}>
+            <p style={{ color: "var(--text-3)", fontSize: "11px", fontFamily: "DM Mono, monospace", lineHeight: 1.6 }}>
+              no friends added
+            </p>
+            <p style={{ color: "var(--text-3)", fontSize: "10px", fontFamily: "DM Mono, monospace", marginTop: "4px", fontStyle: "italic" }}>
+              invite classmates to study together
+            </p>
+          </div>
         ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-            {recentSessions.map(session => (
-              <div key={session.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <p style={{ color: "var(--text-2)", fontSize: "12px", fontFamily: "DM Mono, monospace", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "150px" }}>
-                  {session.topic}
-                </p>
-                <span style={{ fontSize: "11px", color: "var(--text-3)", flexShrink: 0 }}>
-                  {formatDate(session.started_at)}
-                </span>
+          <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+            {friends.map(friend => (
+              <div
+                key={friend.id}
+                style={{
+                  display: "flex", alignItems: "center", gap: "10px",
+                  padding: "8px 10px", transition: "background 0.15s", background: "transparent",
+                }}
+                onMouseOver={e => (e.currentTarget.style.background = "var(--bg-2)")}
+                onMouseOut={e => (e.currentTarget.style.background = "transparent")}
+              >
+                {/* Avatar with status dot */}
+                <div style={{ position: "relative", flexShrink: 0 }}>
+                  <div style={{
+                    width: "26px", height: "26px", borderRadius: "50%",
+                    background: "var(--bg-3)", display: "flex",
+                    alignItems: "center", justifyContent: "center",
+                  }}>
+                    <span style={{ fontSize: "10px", color: "var(--text-2)", fontFamily: "DM Mono, monospace", textTransform: "uppercase" }}>
+                      {friend.username[0] || "?"}
+                    </span>
+                  </div>
+                  {friend.status !== "offline" && (
+                    <div style={{
+                      position: "absolute", bottom: -1, right: -1,
+                      width: "8px", height: "8px", borderRadius: "50%",
+                      background: statusColor(friend.status),
+                      border: "2px solid var(--bg)",
+                    }} />
+                  )}
+                </div>
+
+                {/* Name + studying indicator */}
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <span style={{
+                    fontSize: "12px", fontFamily: "DM Mono, monospace",
+                    color: friend.status === "offline" ? "var(--text-3)" : "var(--text-2)",
+                    display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                  }}>
+                    {friend.username}
+                  </span>
+                  {friend.status === "studying" && friend.current_topic && (
+                    <span style={{
+                      fontSize: "9px", color: "var(--accent)", fontFamily: "DM Mono, monospace",
+                      display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                    }}>
+                      studying {friend.current_topic}
+                    </span>
+                  )}
+                </div>
               </div>
             ))}
           </div>
@@ -166,7 +272,7 @@ export default function Sidebar({ activePage, username, courses, recentSessions,
               fontSize: "13px", fontFamily: "DM Serif Display, serif",
               color: stats.avgMastery != null ? getScoreColor(stats.avgMastery) : "var(--text-3)",
             }}>
-              {stats.avgMastery ?? "—"}
+              {stats.avgMastery ?? "\u2014"}
             </p>
           </div>
         </div>
@@ -181,13 +287,6 @@ export default function Sidebar({ activePage, username, courses, recentSessions,
           onMouseOut={e => (e.currentTarget.style.color = "var(--text-3)")}
         >sign out</button>
       </div>
-
-      <style>{`
-        @keyframes examPulse {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0.3; }
-        }
-      `}</style>
     </div>
   )
 }

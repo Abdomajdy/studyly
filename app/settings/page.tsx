@@ -8,8 +8,6 @@ import {
   type MasteryRow,
   type RecentSession,
   type UserCourse,
-  formatExamDate,
-  getExamUrgencyColor,
   hasExamWithin48Hours,
 } from "@/lib/helpers"
 
@@ -27,12 +25,8 @@ export default function SettingsPage() {
   const [editingUniversity, setEditingUniversity] = useState(false)
   const [savedField, setSavedField] = useState<string | null>(null)
 
-  // Courses
+  // Courses (read-only for sidebar)
   const [courses, setCourses] = useState<UserCourse[]>([])
-  const [newCourseName, setNewCourseName] = useState("")
-  const [newCourseCode, setNewCourseCode] = useState("")
-  const [newExamDate, setNewExamDate] = useState("")
-  const [deletingId, setDeletingId] = useState<string | null>(null)
 
   // Sidebar data
   const [mastery, setMastery] = useState<MasteryRow[]>([])
@@ -85,32 +79,6 @@ export default function SettingsPage() {
     if (field === "university") setEditingUniversity(false)
   }
 
-  async function addCourse() {
-    if (!userId || !newCourseName.trim()) return
-    const { data, error } = await supabase
-      .from("user_courses")
-      .insert({
-        user_id: userId,
-        course_name: newCourseName.trim(),
-        course_code: newCourseCode.trim() || null,
-        exam_date: newExamDate || null,
-      })
-      .select()
-      .single()
-    if (error) { console.error("[settings] add course:", error); return }
-    setCourses(prev => [...prev, data])
-    setNewCourseName("")
-    setNewCourseCode("")
-    setNewExamDate("")
-  }
-
-  async function deleteCourse(id: string) {
-    const { error } = await supabase.from("user_courses").delete().eq("id", id)
-    if (error) { console.error("[settings] delete course:", error); return }
-    setCourses(prev => prev.filter(c => c.id !== id))
-    setDeletingId(null)
-  }
-
   const inputStyle: React.CSSProperties = {
     background: "var(--bg-2)",
     color: "var(--text)",
@@ -134,10 +102,6 @@ export default function SettingsPage() {
     <div style={{ minHeight: "100vh", background: "var(--bg)", display: "flex", opacity: visible ? 1 : 0, transition: "opacity 0.6s ease" }}>
       <Sidebar
         activePage="settings"
-        username={username}
-        courses={courses}
-        recentSessions={recentSessions}
-        examUrgent={hasExamWithin48Hours(courses)}
         stats={{
           totalSessions,
           masteryCount: mastery.length,
@@ -227,105 +191,7 @@ export default function SettingsPage() {
             </div>
           </div>
 
-          {/* ── Section 2: Courses ──────────────────────────────────────────── */}
-          <div style={{ borderTop: "1px solid var(--border)", paddingTop: "40px", marginBottom: "40px" }}>
-            <p style={{ color: "var(--text-3)", fontSize: "10px", letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: "20px" }}>courses</p>
-
-            {courses.length > 0 && (
-              <div style={{ display: "flex", flexDirection: "column", gap: "2px", marginBottom: "24px" }}>
-                {courses.map(course => (
-                  <div key={course.id} style={{
-                    background: "var(--bg-2)", padding: "14px 16px",
-                    display: "flex", alignItems: "center", justifyContent: "space-between",
-                  }}>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                        <p style={{ color: "var(--text)", fontSize: "13px", fontFamily: "DM Mono, monospace" }}>
-                          {course.course_name}
-                        </p>
-                        {course.course_code && (
-                          <span style={{ color: "var(--text-3)", fontSize: "11px" }}>{course.course_code}</span>
-                        )}
-                      </div>
-                    </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: "12px", flexShrink: 0 }}>
-                      {course.exam_date && (
-                        <span style={{ fontSize: "11px", color: getExamUrgencyColor(course.exam_date), fontFamily: "DM Mono, monospace" }}>
-                          {formatExamDate(course.exam_date)}
-                        </span>
-                      )}
-                      {deletingId === course.id ? (
-                        <div style={{ display: "flex", gap: "8px" }}>
-                          <button
-                            onClick={() => deleteCourse(course.id)}
-                            style={{ background: "none", border: "none", color: "var(--danger)", fontSize: "11px", fontFamily: "DM Mono, monospace", cursor: "pointer" }}
-                          >yes</button>
-                          <button
-                            onClick={() => setDeletingId(null)}
-                            style={{ background: "none", border: "none", color: "var(--text-3)", fontSize: "11px", fontFamily: "DM Mono, monospace", cursor: "pointer" }}
-                          >cancel</button>
-                        </div>
-                      ) : (
-                        <button
-                          onClick={() => setDeletingId(course.id)}
-                          style={{ background: "none", border: "none", color: "var(--text-3)", fontSize: "14px", cursor: "pointer", padding: "0 4px", transition: "color 0.2s" }}
-                          onMouseOver={e => (e.currentTarget.style.color = "var(--danger)")}
-                          onMouseOut={e => (e.currentTarget.style.color = "var(--text-3)")}
-                        >×</button>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Add course form */}
-            <div style={{ display: "flex", gap: "8px", marginBottom: "8px" }}>
-              <input
-                type="text"
-                placeholder="course name"
-                value={newCourseName}
-                onChange={e => setNewCourseName(e.target.value)}
-                style={{ ...inputStyle, flex: 1 }}
-                onFocus={e => (e.currentTarget.style.borderColor = "var(--text-3)")}
-                onBlur={e => (e.currentTarget.style.borderColor = "var(--border)")}
-              />
-              <input
-                type="text"
-                placeholder="code"
-                value={newCourseCode}
-                onChange={e => setNewCourseCode(e.target.value)}
-                style={{ ...inputStyle, width: "120px" }}
-                onFocus={e => (e.currentTarget.style.borderColor = "var(--text-3)")}
-                onBlur={e => (e.currentTarget.style.borderColor = "var(--border)")}
-              />
-              <input
-                type="date"
-                value={newExamDate}
-                onChange={e => setNewExamDate(e.target.value)}
-                style={{ ...inputStyle, width: "160px" }}
-                onFocus={e => (e.currentTarget.style.borderColor = "var(--text-3)")}
-                onBlur={e => (e.currentTarget.style.borderColor = "var(--border)")}
-              />
-            </div>
-            <button
-              onClick={addCourse}
-              disabled={!newCourseName.trim()}
-              style={{
-                background: newCourseName.trim() ? "var(--bg-3)" : "transparent",
-                color: newCourseName.trim() ? "var(--text-2)" : "var(--text-3)",
-                border: "1px solid var(--border)",
-                padding: "10px 20px",
-                fontFamily: "DM Mono, monospace",
-                fontSize: "12px",
-                cursor: newCourseName.trim() ? "pointer" : "not-allowed",
-                letterSpacing: "0.05em",
-                transition: "all 0.2s",
-              }}
-            >add course</button>
-          </div>
-
-          {/* ── Section 3: Account ──────────────────────────────────────────── */}
+          {/* ── Section 2: Account ──────────────────────────────────────────── */}
           <div style={{ borderTop: "1px solid var(--border)", paddingTop: "40px" }}>
             <p style={{ color: "var(--text-3)", fontSize: "10px", letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: "20px" }}>account</p>
 

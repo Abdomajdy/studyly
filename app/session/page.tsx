@@ -236,6 +236,7 @@ function SessionInner() {
   const [messageIndex, setMessageIndex] = useState(0)
   const [aiMessageTime, setAiMessageTime] = useState<number | null>(null)
   const [course, setCourse] = useState("")
+  const [studyMode, setStudyMode] = useState<"deep" | "casual" | "cram">("deep")
   const [statedGoal, setStatedGoal] = useState("")
   const [goalStep, setGoalStep] = useState(false)
   const [pendingGoal, setPendingGoal] = useState("")
@@ -261,7 +262,7 @@ function SessionInner() {
   }, { enableOnFormTags: true })
 
   useHotkeys("escape", () => {
-    if (topicSet) setShowSummaryDialog(true)
+    if (topicSet) { setShowSummaryDialog(true); handleEndSession() }
   })
 
   // ── Load Lottie animation (3C) ──────────────────────────────────────────
@@ -426,6 +427,7 @@ function SessionInner() {
         history: [],
         masteryContext,
         totalSessions,
+        studyMode,
       },
       (token) => {
         setMessages(prev => {
@@ -449,7 +451,7 @@ function SessionInner() {
         setLoading(false)
       },
     )
-  }, [topic, masteryContext, totalSessions, notes])
+  }, [topic, masteryContext, totalSessions, notes, studyMode])
 
   // ── Auto-start if topic came from URL ─────────────────────────────────────
   useEffect(() => {
@@ -585,7 +587,7 @@ function SessionInner() {
     let currentSessionId = sessionId
     try {
       if (!currentSessionId) {
-        const newSessionId = await createSession(user.id, topic)
+        const newSessionId = await createSession(user.id, topic, course)
         if (!newSessionId) { console.error("[sendMessage] Failed to create session"); setLoading(false); return }
         currentSessionId = newSessionId
         setSessionId(newSessionId)
@@ -604,6 +606,7 @@ function SessionInner() {
           history: messages.slice(-12),
           masteryContext,
           totalSessions,
+          studyMode,
         },
         (token) => {
           setMessages(prev => {
@@ -644,81 +647,60 @@ function SessionInner() {
   }
 
   // ── End session with summary dialog (3H) ────────────────────────────────
+  const evaluatingRef = useRef(false)
   async function handleEndSession() {
     if (!sessionId && messages.length === 0) { router.push("/dashboard"); return }
-    setShowSummaryDialog(true)
+    if (evaluatingRef.current) return
+    evaluatingRef.current = true
     try {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { router.push("/dashboard"); return }
 
-      // Get AI evaluation of the session
-      const evalRes = await fetch("/api/evaluate", {
+      // Single server call handles: evaluate + mastery + end session + recap
+      const res = await fetch("/api/end-session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ topic, messages })
+        body: JSON.stringify({
+          userId: user.id,
+          sessionId,
+          topic,
+          course: course || "General",
+          messages,
+          masteryContext,
+          elapsed
+        })
       })
-      if (!evalRes.ok) {
-        console.error("[handleEndSession] evaluate failed:", evalRes.status)
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({ error: "unknown" }))
+        console.error("[handleEndSession] server error:", errData)
         setSessionSummary("Session complete.")
-        if (sessionId) endSession(sessionId, "Session complete.").catch(() => {})
         return
       }
 
-      const evaluation = await evalRes.json()
+      const result = await res.json()
 
-      // Show summary immediately — before any DB writes
-      setSessionSummary(evaluation.honest_summary || "Session complete.")
-
-      // Build recap data
-      const scoreBeforeMatch = masteryContext.match(new RegExp(`${topic.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\((\\d+)\\)`))
-      const scoreBefore = scoreBeforeMatch ? parseInt(scoreBeforeMatch[1]) : 50
-      const recapPayload = {
+      setSessionSummary(result.honest_summary || "Session complete.")
+      setRecapData({
         topic,
-        durationMinutes: Math.floor(elapsed / 60),
-        scoreBefore,
-        scoreAfter: scoreBefore + (evaluation.mastery_delta ?? 0),
-        scoreDelta: evaluation.mastery_delta ?? 0,
-        sessionQuality: evaluation.session_quality ?? "productive",
-        honestSummary: evaluation.honest_summary ?? ""
-      }
-      setRecapData(recapPayload)
+        durationMinutes: result.durationMinutes ?? Math.floor(elapsed / 60),
+        scoreBefore: result.scoreBefore ?? 50,
+        scoreAfter: result.newScore ?? 50,
+        scoreDelta: result.mastery_delta ?? 0,
+        sessionQuality: result.session_quality ?? "productive",
+        honestSummary: result.honest_summary ?? ""
+      })
 
-      // All DB writes are fire-and-forget — don't block the UI
-      if (evaluation.mastery_delta !== undefined) {
-        import("@/services/mastery.service").then(({ applyMasteryDelta }) =>
-          applyMasteryDelta(user.id, topic, "General", evaluation.mastery_delta).then(newScore => {
-            if (evaluation.mastery_delta > 0) toast.success(`mastery +${evaluation.mastery_delta} → ${newScore}`)
-            else if (evaluation.mastery_delta < 0) toast(`mastery ${evaluation.mastery_delta} → ${newScore}`, { icon: "→" })
-          })
-        ).catch(err => console.error("[handleEndSession] mastery:", err))
-      }
-
-      supabase.from("mastery_evaluations").insert({
-        user_id: user.id, session_id: sessionId, topic,
-        mastery_delta: evaluation.mastery_delta,
-        understanding_level: evaluation.understanding_level,
-        can_apply: evaluation.can_apply, can_explain: evaluation.can_explain,
-        specific_gaps: evaluation.specific_gaps, specific_strengths: evaluation.specific_strengths,
-        confidence_accuracy: evaluation.confidence_accuracy,
-        recommended_next_topics: evaluation.recommended_next_topics,
-        session_quality: evaluation.session_quality, honest_summary: evaluation.honest_summary
-      }).then(() => {})
-
-      if (sessionId) endSession(sessionId, evaluation.honest_summary).catch(() => {})
-
-      supabase.from("session_recaps").insert({
-        session_id: sessionId, user_id: user.id,
-        topic: recapPayload.topic, duration_minutes: recapPayload.durationMinutes,
-        score_before: recapPayload.scoreBefore, score_after: recapPayload.scoreAfter,
-        score_delta: recapPayload.scoreDelta, session_quality: recapPayload.sessionQuality,
-        honest_summary: recapPayload.honestSummary,
-      }).then(() => {})
+      if (result.mastery_delta > 0) toast.success(`mastery +${result.mastery_delta} → ${result.newScore}`)
+      else if (result.mastery_delta < 0) toast(`mastery ${result.mastery_delta} → ${result.newScore}`, { icon: "→" })
 
       toast.success("session saved")
     } catch (err) {
       console.error("[handleEndSession]", err)
       toast.error("could not save session")
       setSessionSummary("Session complete.")
+    } finally {
+      evaluatingRef.current = false
     }
   }
 
@@ -843,6 +825,47 @@ function SessionInner() {
             onBlur={e => (e.currentTarget.style.borderColor = "var(--border)")}
           />
 
+          {/* Study mode picker */}
+          <div style={{ marginBottom: "16px" }}>
+            <p style={{ color: "var(--text-3)", fontSize: "10px", letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: "10px", fontFamily: "DM Mono, monospace" }}>
+              study mode
+            </p>
+            <div style={{ display: "flex", gap: "6px" }}>
+              {([
+                { key: "deep" as const, label: "Deep Focus", desc: "strict, harder follow-ups" },
+                { key: "casual" as const, label: "Casual", desc: "conversational, more hints" },
+                { key: "cram" as const, label: "Exam Cram", desc: "rapid-fire, no hand-holding" },
+              ]).map(mode => (
+                <button
+                  key={mode.key}
+                  onClick={() => setStudyMode(mode.key)}
+                  style={{
+                    flex: 1,
+                    background: studyMode === mode.key ? "var(--bg-3)" : "var(--bg-2)",
+                    border: `1px solid ${studyMode === mode.key ? (mode.key === "cram" ? "var(--danger)" : "var(--accent-dim)") : "var(--border)"}`,
+                    padding: "12px 10px",
+                    cursor: "pointer",
+                    transition: "all 0.15s",
+                    textAlign: "left",
+                  }}
+                >
+                  <p style={{
+                    color: studyMode === mode.key ? "var(--text)" : "var(--text-2)",
+                    fontSize: "12px", fontFamily: "DM Mono, monospace",
+                    marginBottom: "3px",
+                  }}>
+                    {mode.label}
+                  </p>
+                  <p style={{
+                    color: "var(--text-3)", fontSize: "10px", fontFamily: "DM Mono, monospace",
+                  }}>
+                    {mode.desc}
+                  </p>
+                </button>
+              ))}
+            </div>
+          </div>
+
           <TopicSuggestions courseName={course} onSelect={(t) => setTopic(t)} />
 
           <input type="text" placeholder="e.g. Fourier transforms, thermodynamics..." value={topic} onChange={e => setTopic(e.target.value)} onKeyDown={e => e.key === "Enter" && topic.trim() && setGoalStep(true)} autoFocus style={{ width: "100%", background: "var(--bg-2)", color: "var(--text)", border: "1px solid var(--border)", padding: "16px 20px", fontFamily: "DM Mono, monospace", fontSize: "14px", outline: "none", marginBottom: "12px", transition: "border-color 0.2s" }} onFocus={e => (e.currentTarget.style.borderColor = "var(--text-3)")} onBlur={e => (e.currentTarget.style.borderColor = "var(--border)")} />
@@ -931,7 +954,7 @@ function SessionInner() {
         <Tooltip.Provider delayDuration={300}>
           <Tooltip.Root>
             <Tooltip.Trigger asChild>
-              <button onClick={() => setShowSummaryDialog(true)} style={{
+              <button onClick={() => { setShowSummaryDialog(true); handleEndSession() }} style={{
                 background: "none", border: "none",
                 color: "var(--text-3)", fontFamily: "DM Mono, monospace",
                 fontSize: "11px", cursor: "pointer",
@@ -1204,8 +1227,8 @@ function SessionInner() {
                     if (!user || !sessionId) return
                     supabase.from("response_latency_events").insert({
                       user_id: user.id, session_id: sessionId, topic,
-                      latency_ms: latencyMs,
-                    }).then(() => {})
+                      latency_ms: latencyMs, message_index: messages.length,
+                    }).then(({ error }) => { if (error) console.error("[latency insert]", error) })
                   }).catch(() => {})
                 }
                 if (e.key === "Enter") sendMessage()
@@ -1252,7 +1275,6 @@ function SessionInner() {
       {/* Session summary dialog (3H) */}
       <Dialog.Root open={showSummaryDialog} onOpenChange={(open) => {
         setShowSummaryDialog(open)
-        if (open && !sessionSummary) handleEndSession()
       }}>
         <Dialog.Portal>
           <Dialog.Overlay style={{
