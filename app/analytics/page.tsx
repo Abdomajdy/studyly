@@ -4,6 +4,7 @@ import { supabase } from "@/lib/supabase"
 import { getMastery } from "@/services/mastery.service"
 import { useRouter } from "next/navigation"
 import Sidebar from "@/components/Sidebar"
+import { useSidebarData } from "@/lib/useSidebarData"
 import {
   type MasteryRow,
   type RecentSession,
@@ -43,6 +44,7 @@ function AnimatedValue({ value, color }: { value: number; color?: string }) {
 
 export default function AnalyticsPage() {
   const router = useRouter()
+  const sidebar = useSidebarData()
   const [loading, setLoading] = useState(true)
   const [visible, setVisible] = useState(false)
 
@@ -165,19 +167,46 @@ export default function AnalyticsPage() {
           weakCount: mastery.filter(m => m.score < 40).length,
           avgMastery,
         }}
+        friends={sidebar.friends}
+        groups={sidebar.groups}
+        pendingCount={sidebar.pendingCount}
       />
 
       <div style={{ flex: 1, overflowY: "auto" }}>
         <div style={{ maxWidth: "1080px", margin: "0 auto", padding: "64px 48px" }}>
 
           {/* Header */}
-          <div style={{ marginBottom: "48px" }}>
-            <p style={{ color: "var(--accent)", fontSize: "11px", letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: "12px", fontFamily: "DM Mono, monospace" }}>
-              {username || "there"}
-            </p>
-            <h1 style={{ fontFamily: "DM Serif Display, serif", fontSize: "40px", color: "var(--text)", letterSpacing: "-0.02em", lineHeight: 1.1 }}>
-              Your progress
-            </h1>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "48px" }}>
+            <div>
+              <p style={{ color: "var(--accent)", fontSize: "11px", letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: "12px", fontFamily: "DM Mono, monospace" }}>
+                {username || "there"}
+              </p>
+              <h1 style={{ fontFamily: "DM Serif Display, serif", fontSize: "40px", color: "var(--text)", letterSpacing: "-0.02em", lineHeight: 1.1 }}>
+                Your progress
+              </h1>
+            </div>
+            <button
+              onClick={() => router.push("/patterns")}
+              style={{
+                background: "none",
+                border: "1px solid var(--accent)",
+                color: "var(--accent)",
+                padding: "12px 20px",
+                fontFamily: "DM Mono, monospace",
+                fontSize: "12px",
+                letterSpacing: "0.08em",
+                textTransform: "uppercase",
+                cursor: "pointer",
+                transition: "all 0.2s",
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+              }}
+              onMouseOver={e => { e.currentTarget.style.background = "rgba(200,169,110,0.08)" }}
+              onMouseOut={e => { e.currentTarget.style.background = "none" }}
+            >
+              MY PATTERNS →
+            </button>
           </div>
 
           {/* Stat cards row */}

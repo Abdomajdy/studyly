@@ -4,7 +4,7 @@ import { supabase } from "@/lib/supabase"
 import type { FriendWithPresence, StudyGroupSummary } from "@/lib/helpers"
 
 type SidebarProps = {
-  activePage: "dashboard" | "sessions" | "past-papers" | "analytics" | "settings" | "groups"
+  activePage: "dashboard" | "sessions" | "past-papers" | "analytics" | "patterns" | "settings" | "groups"
   stats: {
     totalSessions: number
     masteryCount: number
@@ -23,6 +23,7 @@ const NAV_ITEMS: { key: SidebarProps["activePage"]; label: string; href: string 
   { key: "sessions",     label: "sessions",     href: "/sessions" },
   { key: "past-papers",  label: "past papers",  href: "/past-papers" },
   { key: "analytics",    label: "analytics",    href: "/analytics" },
+  { key: "patterns",     label: "my patterns",  href: "/patterns" },
   { key: "settings",     label: "settings",     href: "/settings" },
 ]
 

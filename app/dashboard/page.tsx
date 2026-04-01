@@ -627,67 +627,7 @@ export default function DashboardPage() {
                 ) : null}
               </div>
 
-              {/* ── Topic mastery (compact) ─────────────────────────────────── */}
-              <div style={{ marginBottom: "40px" }}>
-                <p style={{ color: "var(--text-3)", fontSize: "10px", letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: "16px" }}>topic mastery</p>
-                {mastery.length === 0 ? (
-                  <p style={{ color: "var(--text-3)", fontSize: "13px", fontStyle: "italic" }}>no sessions yet. lock in to start tracking.</p>
-                ) : (
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "4px" }}>
-                    {mastery.map((row, i) => {
-                      const color = getScoreColor(row.score)
-                      const isHov = hoveredRow === row.id
-                      const deltaKey = `${row.topic}__${row.course}`
-                      const delta = scoreDeltas[deltaKey]
-                      return (
-                        <div
-                          key={row.id}
-                          onMouseOver={() => setHoveredRow(row.id)}
-                          onMouseOut={() => setHoveredRow(null)}
-                          onClick={() => router.push(`/session?topic=${encodeURIComponent(row.topic)}`)}
-                          style={{
-                            background: "var(--bg-2)",
-                            borderLeft: `2px solid ${color}`,
-                            padding: "14px 16px",
-                            cursor: "pointer",
-                            transform: isHov ? "translateY(-1px)" : "translateY(0)",
-                            boxShadow: isHov ? "0 4px 16px rgba(0,0,0,0.3)" : "none",
-                            transition: "transform 0.18s ease, box-shadow 0.18s ease",
-                            opacity: 0, animation: "fadeIn 0.3s ease forwards",
-                            animationDelay: `${i * 0.03}s`,
-                            minWidth: 0, overflow: "hidden",
-                          }}
-                        >
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
-                            <p style={{ color: "var(--text)", fontSize: "13px", fontFamily: "DM Mono, monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>
-                              {row.topic}
-                            </p>
-                            <div style={{ display: "flex", alignItems: "center", gap: "6px", flexShrink: 0, paddingLeft: "8px" }}>
-                              {delta !== undefined && (
-                                <span style={{ fontSize: "10px", fontFamily: "DM Mono, monospace", color: delta > 0 ? "var(--success)" : "var(--danger)" }}>
-                                  {delta > 0 ? `+${delta}` : delta}
-                                </span>
-                              )}
-                              <span style={{ color, fontSize: "18px", fontFamily: "DM Serif Display, serif", lineHeight: 1 }}>
-                                {row.score}
-                              </span>
-                            </div>
-                          </div>
-                          <div style={{ height: "2px", background: "var(--border)", width: "100%" }}>
-                            <div style={{
-                              height: "100%",
-                              width: visible ? `${row.score}%` : "0%",
-                              background: color,
-                              opacity: 0.6,
-                              transition: `width 0.8s ease ${i * 0.04}s`,
-                            }} />
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                )}
-              </div>
+              {/* Topic mastery moved to /analytics and /patterns */}
 
               {userId && <PeerComparison userId={userId} mastery={mastery} />}
             </div>
@@ -771,9 +711,9 @@ export default function DashboardPage() {
 
                   // Custom events
                   calendarEvents.forEach(ev => {
-                    const ed = new Date(ev.date)
-                    if (ed.getMonth() === month && ed.getFullYear() === year) {
-                      const key = `${year}-${String(month + 1).padStart(2, "0")}-${String(ed.getDate()).padStart(2, "0")}`
+                    const [ey, em, eday] = ev.date.split("-").map(Number)
+                    if (em - 1 === month && ey === year) {
+                      const key = `${ey}-${String(em).padStart(2, "0")}-${String(eday).padStart(2, "0")}`
                       if (!dateEventMap[key]) dateEventMap[key] = []
                       dateEventMap[key].push({ title: ev.title, type: ev.type, id: ev.id })
                     }

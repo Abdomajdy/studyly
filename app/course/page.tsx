@@ -4,6 +4,7 @@ import { supabase } from "@/lib/supabase"
 import { getMastery } from "@/services/mastery.service"
 import { useRouter, useSearchParams } from "next/navigation"
 import Sidebar from "@/components/Sidebar"
+import { useSidebarData } from "@/lib/useSidebarData"
 import {
   type MasteryRow,
   type RecentSession,
@@ -193,6 +194,7 @@ function ActivityHeatmap({ sessions }: { sessions: CourseSession[] }) {
 
 export default function CoursePage() {
   const router = useRouter()
+  const sidebar = useSidebarData()
   const searchParams = useSearchParams()
   const courseName = searchParams.get("name") || ""
 
@@ -371,6 +373,9 @@ export default function CoursePage() {
           weakCount: allMastery.filter(m => m.score < 40).length,
           avgMastery: allMastery.length > 0 ? Math.round(allMastery.reduce((s, m) => s + m.score, 0) / allMastery.length) : null,
         }}
+        friends={sidebar.friends}
+        groups={sidebar.groups}
+        pendingCount={sidebar.pendingCount}
       />
 
       <div style={{ flex: 1, overflowY: "auto" }}>

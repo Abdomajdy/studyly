@@ -4,6 +4,7 @@ import { supabase } from "@/lib/supabase"
 import { getMastery } from "@/services/mastery.service"
 import { useRouter, useSearchParams } from "next/navigation"
 import Sidebar from "@/components/Sidebar"
+import { useSidebarData } from "@/lib/useSidebarData"
 import {
   type MasteryRow,
   getScoreColor,
@@ -153,6 +154,7 @@ function AmbientPlayer() {
 
 export default function GroupsPage() {
   const router = useRouter()
+  const sidebar = useSidebarData()
   const searchParams = useSearchParams()
   const groupId = searchParams.get("id") || ""
   const joinId = searchParams.get("join") || ""
@@ -362,6 +364,9 @@ export default function GroupsPage() {
           weakCount: mastery.filter(m => m.score < 40).length,
           avgMastery: mastery.length > 0 ? Math.round(mastery.reduce((s, m) => s + m.score, 0) / mastery.length) : null,
         }}
+        friends={sidebar.friends}
+        groups={sidebar.groups}
+        pendingCount={sidebar.pendingCount}
       />
 
       <div style={{ flex: 1, overflowY: "auto" }}>

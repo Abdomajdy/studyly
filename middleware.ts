@@ -32,7 +32,7 @@ export async function middleware(request: NextRequest) {
 
   const path = request.nextUrl.pathname;
   const isProtected =
-    path.startsWith('/dashboard') || path.startsWith('/session');
+    path.startsWith('/dashboard') || path.startsWith('/session') || path.startsWith('/patterns') || path.startsWith('/analytics');
 
   if (isProtected && !user) {
     return NextResponse.redirect(new URL('/login', request.url));
@@ -42,5 +42,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/dashboard/:path*', '/session/:path*'],
+  matcher: ['/dashboard/:path*', '/session/:path*', '/patterns/:path*', '/analytics/:path*'],
 };

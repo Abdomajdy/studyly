@@ -4,6 +4,7 @@ import { supabase } from "@/lib/supabase"
 import { getMastery } from "@/services/mastery.service"
 import { useRouter } from "next/navigation"
 import Sidebar from "@/components/Sidebar"
+import { useSidebarData } from "@/lib/useSidebarData"
 import {
   type MasteryRow,
   type RecentSession,
@@ -13,6 +14,7 @@ import {
 
 export default function SettingsPage() {
   const router = useRouter()
+  const sidebar = useSidebarData()
   const [loading, setLoading] = useState(true)
   const [visible, setVisible] = useState(false)
   const [userId, setUserId] = useState<string | null>(null)
@@ -108,6 +110,9 @@ export default function SettingsPage() {
           weakCount: mastery.filter(m => m.score < 40).length,
           avgMastery,
         }}
+        friends={sidebar.friends}
+        groups={sidebar.groups}
+        pendingCount={sidebar.pendingCount}
       />
 
       <div style={{ flex: 1, overflowY: "auto" }}>
