@@ -1,9 +1,13 @@
 import Anthropic from "@anthropic-ai/sdk"
 import { NextRequest, NextResponse } from "next/server"
+import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth"
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
 export async function POST(req: NextRequest) {
+  const userId = await getAuthenticatedUser(req)
+  if (!userId) return unauthorizedResponse()
+
   try {
     const { topic, messages } = await req.json()
     const transcript = messages

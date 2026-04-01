@@ -1,5 +1,5 @@
 "use client"
-import { useEffect, useState, useMemo } from "react"
+import { useEffect, useState, useMemo, Suspense } from "react"
 import { supabase } from "@/lib/supabase"
 import { getMastery } from "@/services/mastery.service"
 import { useRouter, useSearchParams } from "next/navigation"
@@ -192,7 +192,19 @@ function ActivityHeatmap({ sessions }: { sessions: CourseSession[] }) {
   )
 }
 
-export default function CoursePage() {
+export default function CoursePageWrapper() {
+  return (
+    <Suspense fallback={
+      <div style={{ minHeight: "100vh", background: "var(--bg)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <p style={{ color: "var(--text-3)", fontSize: "12px", letterSpacing: "0.1em" }}>loading...</p>
+      </div>
+    }>
+      <CoursePage />
+    </Suspense>
+  )
+}
+
+function CoursePage() {
   const router = useRouter()
   const sidebar = useSidebarData()
   const searchParams = useSearchParams()

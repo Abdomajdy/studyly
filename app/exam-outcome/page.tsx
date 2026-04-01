@@ -1,10 +1,22 @@
 "use client"
-import { useState, useEffect } from "react"
+import { useState, useEffect, Suspense } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
 
-export default function ExamOutcomePage() {
+export default function ExamOutcomePageWrapper() {
+  return (
+    <Suspense fallback={
+      <div style={{ minHeight: "100vh", background: "var(--bg)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <p style={{ color: "var(--text-3)", fontSize: "12px", letterSpacing: "0.1em" }}>loading...</p>
+      </div>
+    }>
+      <ExamOutcomePage />
+    </Suspense>
+  )
+}
+
+function ExamOutcomePage() {
   const params = useSearchParams()
   const router = useRouter()
   const course = params.get("course") || ""

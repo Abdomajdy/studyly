@@ -1,5 +1,5 @@
 "use client"
-import { useEffect, useState, useCallback, useRef } from "react"
+import { useEffect, useState, useCallback, useRef, Suspense } from "react"
 import { supabase } from "@/lib/supabase"
 import { getMastery } from "@/services/mastery.service"
 import { useRouter, useSearchParams } from "next/navigation"
@@ -152,7 +152,19 @@ function AmbientPlayer() {
   )
 }
 
-export default function GroupsPage() {
+export default function GroupsPageWrapper() {
+  return (
+    <Suspense fallback={
+      <div style={{ minHeight: "100vh", background: "var(--bg)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <p style={{ color: "var(--text-3)", fontSize: "12px", letterSpacing: "0.1em" }}>loading...</p>
+      </div>
+    }>
+      <GroupsPage />
+    </Suspense>
+  )
+}
+
+function GroupsPage() {
   const router = useRouter()
   const sidebar = useSidebarData()
   const searchParams = useSearchParams()

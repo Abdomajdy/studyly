@@ -366,17 +366,29 @@ export default function DashboardPage() {
 
         {/* Background atmosphere orbs (3F) */}
         <div style={{ position: "fixed", inset: 0, pointerEvents: "none", zIndex: 0, overflow: "hidden" }}>
+          {/* Noise texture overlay */}
+          <div style={{
+            position: "absolute", inset: 0, opacity: 0.03,
+            backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")`,
+            backgroundRepeat: "repeat", backgroundSize: "128px 128px",
+          }} />
           <div style={{
             position: "absolute", top: "-10%", right: "-5%",
             width: "600px", height: "600px", borderRadius: "50%",
-            background: "radial-gradient(circle, rgba(200,169,110,0.03) 0%, transparent 70%)",
+            background: "radial-gradient(circle, rgba(200,169,110,0.035) 0%, transparent 70%)",
             animation: "drift1 20s ease-in-out infinite"
           }} />
           <div style={{
             position: "absolute", bottom: "-10%", left: "-5%",
             width: "500px", height: "500px", borderRadius: "50%",
-            background: "radial-gradient(circle, rgba(200,169,110,0.02) 0%, transparent 70%)",
+            background: "radial-gradient(circle, rgba(200,169,110,0.025) 0%, transparent 70%)",
             animation: "drift2 28s ease-in-out infinite"
+          }} />
+          <div style={{
+            position: "absolute", top: "40%", left: "30%",
+            width: "400px", height: "400px", borderRadius: "50%",
+            background: "radial-gradient(circle, rgba(126,184,218,0.015) 0%, transparent 70%)",
+            animation: "drift1 35s ease-in-out infinite reverse"
           }} />
         </div>
 
@@ -398,9 +410,8 @@ export default function DashboardPage() {
               {/* Lock In button */}
               <button
                 onClick={() => router.push("/session")}
-                style={{ width: "100%", background: "var(--text)", color: "var(--bg)", border: "none", padding: "20px", fontFamily: "DM Mono, monospace", fontSize: "14px", fontWeight: 500, cursor: "pointer", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "24px", transition: "opacity 0.2s" }}
-                onMouseOver={e => (e.currentTarget.style.opacity = "0.85")}
-                onMouseOut={e => (e.currentTarget.style.opacity = "1")}
+                className="lock-in-btn"
+                style={{ width: "100%", background: "linear-gradient(135deg, #f0ede8 0%, #d8d3ca 100%)", color: "var(--bg)", border: "none", padding: "20px", fontFamily: "DM Mono, monospace", fontSize: "14px", fontWeight: 500, cursor: "pointer", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "24px", transition: "all 0.3s ease", position: "relative", overflow: "hidden" }}
               >Lock In</button>
 
               {/* First-time user callout */}
@@ -432,8 +443,14 @@ export default function DashboardPage() {
                 </div>
 
                 {/* Add course form */}
-                {showAddCourse && (
-                  <div style={{ background: "var(--bg-2)", border: "1px solid var(--border)", padding: "20px", marginBottom: "12px" }}>
+                <div style={{
+                  display: "grid",
+                  gridTemplateRows: showAddCourse ? "1fr" : "0fr",
+                  transition: "grid-template-rows 0.3s ease",
+                  marginBottom: showAddCourse ? "12px" : "0",
+                }}>
+                  <div style={{ overflow: "hidden" }}>
+                  <div style={{ background: "var(--bg-2)", border: "1px solid var(--border)", padding: "20px", opacity: showAddCourse ? 1 : 0, transition: "opacity 0.2s ease" }}>
                     <div style={{ display: "flex", gap: "8px", marginBottom: "8px" }}>
                       <input
                         type="text"
@@ -493,7 +510,8 @@ export default function DashboardPage() {
                       exam date is optional — add it when you know it
                     </p>
                   </div>
-                )}
+                  </div>
+                </div>
 
                 {courses.length === 0 && !showAddCourse ? (
                   <div style={{ background: "var(--bg-2)", border: "1px dashed var(--border)", padding: "32px 24px", textAlign: "center" }}>
@@ -532,13 +550,13 @@ export default function DashboardPage() {
                           onMouseOut={() => setHoveredRow(null)}
                           onClick={() => router.push(`/course?name=${encodeURIComponent(course.course_name)}`)}
                           style={{
-                            background: "var(--bg-2)",
+                            background: isHov ? "var(--bg-3)" : "var(--bg-2)",
                             border: "1px solid var(--border)",
+                            borderLeft: `3px solid ${courseAvg !== null ? getScoreColor(courseAvg) : "var(--accent-dim)"}`,
                             padding: "24px",
                             cursor: "pointer",
-                            transform: isHov ? "translateY(-2px)" : "translateY(0)",
-                            boxShadow: isHov ? "0 8px 24px rgba(0,0,0,0.25)" : "none",
-                            transition: "transform 0.18s ease, box-shadow 0.18s ease",
+                            boxShadow: isHov ? "0 8px 32px rgba(0,0,0,0.3), 0 0 0 1px rgba(200,169,110,0.06)" : "0 0 0 rgba(0,0,0,0)",
+                            transition: "box-shadow 0.25s ease, background 0.25s ease",
                             opacity: 0, animation: "fadeIn 0.4s ease forwards",
                             animationDelay: `${ci * 0.08}s`,
                             minWidth: 0, overflow: "hidden",
@@ -836,8 +854,13 @@ export default function DashboardPage() {
                 </button>
 
                 {/* Add event form */}
-                {showAddEvent && (
-                  <div style={{ marginTop: "12px", display: "flex", flexDirection: "column", gap: "8px" }}>
+                <div style={{
+                  display: "grid",
+                  gridTemplateRows: showAddEvent ? "1fr" : "0fr",
+                  transition: "grid-template-rows 0.3s ease",
+                }}>
+                  <div style={{ overflow: "hidden" }}>
+                  <div style={{ marginTop: "12px", display: "flex", flexDirection: "column", gap: "8px", opacity: showAddEvent ? 1 : 0, transition: "opacity 0.2s ease" }}>
                     <input
                       type="text"
                       placeholder="e.g. CHEM 1101 midterm"
@@ -893,7 +916,8 @@ export default function DashboardPage() {
                       Add Event
                     </button>
                   </div>
-                )}
+                  </div>
+                </div>
               </div>
 
               {/* Upcoming events list */}
@@ -1064,6 +1088,14 @@ export default function DashboardPage() {
         }
         @media (prefers-reduced-motion: reduce) {
           * { transition-duration: 0.01ms !important; }
+        }
+        .lock-in-btn:hover {
+          box-shadow: 0 0 24px rgba(200,169,110,0.15), 0 4px 16px rgba(0,0,0,0.2);
+          transform: translateY(-1px);
+        }
+        .lock-in-btn:active {
+          transform: translateY(0);
+          box-shadow: 0 0 8px rgba(200,169,110,0.1);
         }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
         @keyframes drift1 {

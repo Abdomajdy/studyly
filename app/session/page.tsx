@@ -9,6 +9,8 @@ import remarkGfm from "remark-gfm"
 import remarkMath from "remark-math"
 import rehypeKatex from "rehype-katex"
 import rehypeRaw from "rehype-raw"
+import rehypeSanitize, { defaultSchema } from "rehype-sanitize"
+import DOMPurify from "dompurify"
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter"
 import { atomDark } from "react-syntax-highlighter/dist/esm/styles/prism"
 import { motion, AnimatePresence } from "framer-motion"
@@ -33,6 +35,310 @@ import P5Sketch from "@/components/P5Sketch"
 import TopicSuggestions from "@/components/TopicSuggestions"
 import RecapCard from "@/components/RecapCard"
 import "katex/dist/katex.min.css"
+
+// ── Study buddy mascot ───────────────────────────────────────────────────────
+const sanitizeSchema = {
+  ...defaultSchema,
+  tagNames: [...(defaultSchema.tagNames || []), "math", "semantics", "mrow", "mi", "mo", "mn", "msup", "msub", "mfrac", "msqrt", "mover", "munder", "mtable", "mtr", "mtd", "mtext", "annotation", "span", "div", "svg", "g", "path", "line", "rect", "circle", "ellipse", "polygon", "polyline", "text", "tspan", "defs", "marker", "use", "filter", "feGaussianBlur", "feTurbulence"],
+  attributes: {
+    ...defaultSchema.attributes,
+    "*": [...(defaultSchema.attributes?.["*"] || []), "className", "class", "style"],
+    math: ["xmlns"],
+    annotation: ["encoding"],
+    span: ["className", "class", "style", "aria-hidden"],
+    div: ["className", "class", "style"],
+    svg: ["viewBox", "width", "height", "xmlns", "fill", "stroke"],
+    g: ["transform", "fill", "stroke"],
+    path: ["d", "fill", "stroke", "strokeWidth", "stroke-width"],
+    line: ["x1", "y1", "x2", "y2", "stroke", "strokeWidth", "stroke-width"],
+    rect: ["x", "y", "width", "height", "fill", "stroke", "rx", "ry"],
+    circle: ["cx", "cy", "r", "fill", "stroke"],
+    text: ["x", "y", "fill", "fontSize", "font-size", "fontFamily", "font-family", "textAnchor", "text-anchor"],
+  },
+}
+
+const BUDDY_IDLE_MESSAGES = [
+  "you're doing great.",
+  "keep going.",
+  "locked in.",
+  "focus. you got this.",
+  "one step at a time.",
+  "your future self thanks you.",
+  "push through.",
+  "brain gains.",
+  "stay curious.",
+  "deep breaths.",
+  "consistency > intensity.",
+  "you chose to be here. respect.",
+  "the grind is real.",
+  "trust the process.",
+]
+
+const BUDDY_HYPE_MESSAGES = [
+  "lessgooo",
+  "ohhh yeahhh",
+  "you got this homie",
+  "you on some G sht",
+  "YOOO nice",
+  "big brain energy",
+  "that's what I'm talkin about",
+  "sheeeesh",
+  "W answer fr",
+  "you cookin rn",
+]
+
+const CORRECT_SIGNALS = /\bcorrect\b|\bright\b|\bexactly\b|\bperfect\b|\bwell done\b|\bgreat job\b|\bnice work\b|\bnailed it\b|\bspot on\b|\byes!\b|\bthat's it\b|\bgood thinking\b/i
+
+// Side positions: left margin or right margin — never over the chat (center)
+const BUDDY_SIDES = {
+  left:  [2, 4, 6, 8, 10],   // % from left — well clear of centered chat
+  right: [86, 88, 90, 92, 94], // % from left — right side, clear of chat
+}
+
+function StudyBuddy({ messageCount, lastAiMessage }: { messageCount: number; lastAiMessage: string }) {
+  const [side, setSide] = useState<"left" | "right">("left")
+  const [xPct, setXPct] = useState(4)
+  const [yPct, setYPct] = useState(-10) // start above viewport
+  const [msg, setMsg] = useState<string | null>(null)
+  const [hype, setHype] = useState(false)
+  const [visible, setVisible] = useState(false)
+  const [entered, setEntered] = useState(false)
+  const [eyesClosed, setEyesClosed] = useState(false)
+  const [flapping, setFlapping] = useState(false)
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const msgIndexRef = useRef(0)
+  const prevAiRef = useRef("")
+
+  // Pick a random x on a given side
+  function pickX(s: "left" | "right") {
+    const opts = BUDDY_SIDES[s]
+    return opts[Math.floor(Math.random() * opts.length)]
+  }
+
+  // Drop to a new Y on the same side (upper half: 12-40%)
+  function dropToNewY() {
+    setFlapping(true)
+    setYPct(-8) // fly up off screen first
+    setTimeout(() => {
+      setYPct(12 + Math.random() * 28) // drop to new spot
+      setTimeout(() => setFlapping(false), 1800)
+    }, 800)
+  }
+
+  // Change sides: fly up, switch x, drop down
+  function changeSide() {
+    const newSide = side === "left" ? "right" : "left"
+    setFlapping(true)
+    setYPct(-8) // fly up
+    setTimeout(() => {
+      setSide(newSide)
+      setXPct(pickX(newSide))
+      setTimeout(() => {
+        setYPct(12 + Math.random() * 28) // drop to new spot
+        setTimeout(() => setFlapping(false), 1800)
+      }, 300) // brief pause at top before dropping
+    }, 900)
+  }
+
+  // Blink
+  useEffect(() => {
+    const id = setInterval(() => {
+      setEyesClosed(true)
+      setTimeout(() => setEyesClosed(false), 150)
+    }, 3000 + Math.random() * 2500)
+    return () => clearInterval(id)
+  }, [])
+
+  // Initial entrance + periodic idle messages
+  useEffect(() => {
+    const initialTimer = setTimeout(() => {
+      setVisible(true)
+      setFlapping(true)
+      setXPct(pickX("left"))
+      // Drop in from top
+      setTimeout(() => {
+        setYPct(15 + Math.random() * 20)
+        setEntered(true)
+        setTimeout(() => setFlapping(false), 1600)
+        showIdle()
+      }, 100)
+    }, 6000)
+
+    function showIdle() {
+      const message = BUDDY_IDLE_MESSAGES[msgIndexRef.current % BUDDY_IDLE_MESSAGES.length]
+      msgIndexRef.current++
+      setHype(false)
+      setMsg(message)
+      setTimeout(() => setMsg(null), 4000)
+
+      timerRef.current = setTimeout(() => {
+        // Alternate: sometimes change sides, sometimes just drop on same side
+        if (Math.random() > 0.5) {
+          changeSide()
+        } else {
+          dropToNewY()
+        }
+        setTimeout(() => showIdle(), 2200)
+      }, 18000 + Math.random() * 12000)
+    }
+
+    return () => {
+      clearTimeout(initialTimer)
+      if (timerRef.current) clearTimeout(timerRef.current)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Detect correct answers from AI response
+  useEffect(() => {
+    if (!visible || !entered || !lastAiMessage || lastAiMessage === prevAiRef.current) return
+    prevAiRef.current = lastAiMessage
+
+    const snippet = lastAiMessage.slice(0, 200)
+    if (CORRECT_SIGNALS.test(snippet)) {
+      const hypeMsg = BUDDY_HYPE_MESSAGES[Math.floor(Math.random() * BUDDY_HYPE_MESSAGES.length)]
+      setHype(true)
+      setFlapping(true)
+      setMsg(hypeMsg)
+      setTimeout(() => { setMsg(null); setHype(false); setFlapping(false) }, 3500)
+    }
+  }, [lastAiMessage, visible, entered])
+
+  // React to every 3rd user message
+  useEffect(() => {
+    if (messageCount > 0 && messageCount % 3 === 0 && visible && entered) {
+      const nudges = [
+        "keep that energy",
+        "you locked in fr",
+        "we movin",
+        "steady grinding",
+      ]
+      setMsg(nudges[Math.floor(Math.random() * nudges.length)])
+      setTimeout(() => setMsg(null), 3000)
+      dropToNewY()
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messageCount, visible, entered])
+
+  if (!visible) return null
+
+  const isLeft = side === "left"
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        left: `${xPct}%`,
+        top: `${yPct}%`,
+        zIndex: 40,
+        transition: entered
+          ? "top 1.6s cubic-bezier(0.22, 1, 0.36, 1), left 0.6s cubic-bezier(0.22, 1, 0.36, 1)"
+          : "top 2s cubic-bezier(0.22, 1, 0.36, 1)",
+        display: "flex",
+        flexDirection: isLeft ? "row" : "row-reverse",
+        alignItems: "flex-start",
+        gap: "10px",
+        pointerEvents: "none",
+      }}
+    >
+      {/* The owl */}
+      <div style={{
+        width: "56px", height: "56px", position: "relative",
+        animation: hype
+          ? "buddyHype 0.4s ease-in-out 3"
+          : flapping
+          ? "buddyFlap 0.35s ease-in-out infinite"
+          : "buddyBob 3s ease-in-out infinite",
+        filter: hype ? "drop-shadow(0 0 8px rgba(200,169,110,0.5))" : "none",
+        transition: "filter 0.3s",
+      }}>
+        <svg viewBox="0 0 48 48" width="56" height="56" fill="none" xmlns="http://www.w3.org/2000/svg">
+          {/* Body */}
+          <ellipse cx="24" cy="28" rx="16" ry="16" fill="#1a1a1e" stroke="#2a2a2e" strokeWidth="1.5" />
+          {/* Left wing — flaps via CSS class */}
+          <g className={flapping ? "buddy-wing-l" : ""}>
+            <path
+              d="M6 28 Q4 30 6 36 Q9 30 8 28Z"
+              fill="#1a1a1e" stroke="#2a2a2e" strokeWidth="1"
+            />
+          </g>
+          {/* Right wing */}
+          <g className={flapping ? "buddy-wing-r" : ""}>
+            <path
+              d="M42 28 Q44 30 42 36 Q39 30 40 28Z"
+              fill="#1a1a1e" stroke="#2a2a2e" strokeWidth="1"
+            />
+          </g>
+          {/* Ears/tufts */}
+          <path d="M11 14 L15 21 L7 18Z" fill="#1a1a1e" stroke="#2a2a2e" strokeWidth="1" />
+          <path d="M37 14 L33 21 L41 18Z" fill="#1a1a1e" stroke="#2a2a2e" strokeWidth="1" />
+          {/* Eye circles */}
+          <circle cx="17" cy="26" r="6" fill="#111113" stroke="#c8a96e" strokeWidth="1.2" />
+          <circle cx="31" cy="26" r="6" fill="#111113" stroke="#c8a96e" strokeWidth="1.2" />
+          {/* Pupils / blink */}
+          {eyesClosed ? (
+            <>
+              <line x1="13" y1="26" x2="21" y2="26" stroke="#c8a96e" strokeWidth="1.5" strokeLinecap="round" />
+              <line x1="27" y1="26" x2="35" y2="26" stroke="#c8a96e" strokeWidth="1.5" strokeLinecap="round" />
+            </>
+          ) : hype ? (
+            <>
+              <text x="14" y="29" fontSize="10" fill="#c8a96e" textAnchor="middle">&#9733;</text>
+              <text x="34" y="29" fontSize="10" fill="#c8a96e" textAnchor="middle">&#9733;</text>
+            </>
+          ) : (
+            <>
+              <circle cx="18" cy="26" r="2.5" fill="#c8a96e" />
+              <circle cx="32" cy="26" r="2.5" fill="#c8a96e" />
+              <circle cx="18.7" cy="25.3" r="0.9" fill="#f0ede8" />
+              <circle cx="32.7" cy="25.3" r="0.9" fill="#f0ede8" />
+            </>
+          )}
+          {/* Beak */}
+          <path d="M21 32 L24 36 L27 32Z" fill="#c8a96e" />
+          {/* Feet */}
+          <path d="M18 43 L16 46 M18 43 L18 46 M18 43 L20 46" stroke="#8a7248" strokeWidth="1.2" strokeLinecap="round" />
+          <path d="M30 43 L28 46 M30 43 L30 46 M30 43 L32 46" stroke="#8a7248" strokeWidth="1.2" strokeLinecap="round" />
+        </svg>
+      </div>
+
+      {/* Speech bubble */}
+      {msg && (
+        <div style={{
+          background: hype ? "rgba(200,169,110,0.12)" : "var(--bg-2)",
+          border: `1px solid ${hype ? "var(--accent)" : "var(--border)"}`,
+          padding: "10px 14px",
+          maxWidth: "200px",
+          position: "relative",
+          animation: hype ? "buddyMsgHype 0.3s ease-out" : "buddyMsgIn 0.3s ease-out",
+          boxShadow: hype
+            ? "0 4px 20px rgba(200,169,110,0.2)"
+            : "0 4px 16px rgba(0,0,0,0.3)",
+        }}>
+          <p style={{
+            color: hype ? "var(--accent)" : "var(--text-2)",
+            fontSize: hype ? "13px" : "12px",
+            fontFamily: "DM Mono, monospace",
+            fontWeight: hype ? 600 : 400,
+            lineHeight: 1.4,
+            letterSpacing: hype ? "0.04em" : "0.02em",
+          }}>
+            {msg}
+          </p>
+          <div style={{
+            position: "absolute",
+            top: "12px",
+            [isLeft ? "left" : "right"]: "-6px",
+            width: 0, height: 0,
+            borderTop: "5px solid transparent",
+            borderBottom: "5px solid transparent",
+            [isLeft ? "borderRight" : "borderLeft"]: `6px solid ${hype ? "var(--accent)" : "var(--border)"}`,
+          }} />
+        </div>
+      )}
+    </div>
+  )
+}
 
 // ── Mermaid diagram renderer ──────────────────────────────────────────────────
 let _mermaidReady = false
@@ -841,8 +1147,10 @@ function SessionInner() {
   // ── Topic entry screen ────────────────────────────────────────────────────
   if (!topicSet) {
     return (
-      <div style={{ minHeight: "100vh", background: "var(--bg)", display: "flex", alignItems: "center", justifyContent: "center", paddingTop: "76px", paddingRight: "24px", paddingBottom: "24px", paddingLeft: "24px", opacity: visible ? 1 : 0, transition: "opacity 0.6s ease" }}>
-        <div style={{ width: "100%", maxWidth: "520px" }}>
+      <div style={{ minHeight: "100vh", background: "var(--bg)", display: "flex", alignItems: "center", justifyContent: "center", paddingTop: "76px", paddingRight: "24px", paddingBottom: "24px", paddingLeft: "24px", opacity: visible ? 1 : 0, transition: "opacity 0.6s ease", position: "relative", overflow: "hidden" }}>
+        {/* Ambient glow behind entry form */}
+        <div style={{ position: "absolute", top: "20%", left: "50%", transform: "translateX(-50%)", width: "600px", height: "600px", borderRadius: "50%", background: "radial-gradient(circle, rgba(200,169,110,0.04) 0%, transparent 65%)", pointerEvents: "none" }} />
+        <div style={{ width: "100%", maxWidth: "520px", position: "relative", zIndex: 1 }}>
           <p style={{ color: "var(--accent)", fontSize: "11px", letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: "20px", fontFamily: "DM Mono, monospace" }}>SESSION</p>
           <h1 style={{ fontFamily: "DM Serif Display, serif", fontSize: "36px", color: "var(--text)", marginBottom: "8px", letterSpacing: "-0.02em" }}>What are we locking in on?</h1>
           <p style={{ color: "var(--text-3)", fontSize: "13px", marginBottom: "40px" }}>Topic, chapter, concept. Be specific.</p>
@@ -947,30 +1255,49 @@ function SessionInner() {
 
       {/* Background atmosphere orbs */}
       <div style={{ position: "fixed", inset: 0, pointerEvents: "none", zIndex: 0, overflow: "hidden" }}>
+        {/* Noise grain */}
+        <div style={{
+          position: "absolute", inset: 0, opacity: 0.025,
+          backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")`,
+          backgroundRepeat: "repeat", backgroundSize: "128px 128px",
+        }} />
         <div style={{
           position: "absolute", top: "-200px", right: "-200px",
           width: "700px", height: "700px", borderRadius: "50%",
-          background: "radial-gradient(circle, rgba(200,169,110,0.025) 0%, transparent 70%)",
+          background: "radial-gradient(circle, rgba(200,169,110,0.03) 0%, transparent 70%)",
           animation: "drift1 25s linear infinite",
         }} />
         <div style={{
           position: "absolute", bottom: "-150px", left: "-150px",
           width: "500px", height: "500px", borderRadius: "50%",
-          background: "radial-gradient(circle, rgba(200,169,110,0.015) 0%, transparent 70%)",
+          background: "radial-gradient(circle, rgba(200,169,110,0.018) 0%, transparent 70%)",
           animation: "drift2 32s linear infinite",
         }} />
+        <div style={{
+          position: "absolute", top: "30%", left: "50%",
+          width: "450px", height: "450px", borderRadius: "50%",
+          background: "radial-gradient(circle, rgba(126,184,218,0.012) 0%, transparent 65%)",
+          animation: "drift1 40s linear infinite reverse",
+        }} />
       </div>
+
+      {/* Study buddy mascot */}
+      <StudyBuddy
+        messageCount={messages.filter(m => m.role === "user").length}
+        lastAiMessage={(() => { const aiMsgs = messages.filter(m => m.role === "assistant" && m.content); return aiMsgs.length > 0 ? aiMsgs[aiMsgs.length - 1].content : "" })()}
+      />
 
       {/* Header — fixed */}
       <div style={{
         position: "fixed", top: 0, left: 0, right: 0, zIndex: 50,
         height: "52px", display: "flex", alignItems: "center", justifyContent: "space-between",
         padding: "0 48px",
-        background: "rgba(10,10,11,0.85)", backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
+        background: "rgba(10,10,11,0.88)", backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)",
         borderBottom: "1px solid var(--border)",
+        boxShadow: "0 1px 12px rgba(200,169,110,0.04), 0 4px 24px rgba(0,0,0,0.15)",
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
-          <div style={{ width: "6px", height: "6px", borderRadius: "50%", background: "var(--accent)", animation: "pulse 2s infinite" }} />
+          <div style={{ width: "7px", height: "7px", borderRadius: "50%", background: "var(--accent)", animation: "pulse 2s infinite", boxShadow: "0 0 6px rgba(200,169,110,0.4)" }} />
           <p style={{ color: "var(--text-2)", fontSize: "12px", fontFamily: "DM Mono, monospace", letterSpacing: "0.08em", textTransform: "uppercase" }}>{topic}</p>
           {isResumed && (
             <span style={{
@@ -982,12 +1309,12 @@ function SessionInner() {
         </div>
         <div style={{
           position: "absolute", left: "50%", transform: "translateX(-50%)",
-          display: "flex", alignItems: "center", gap: "6px",
+          display: "flex", alignItems: "center", gap: "8px",
         }}>
-          <Clock size={12} style={{ color: "var(--text-3)" }} />
+          <Clock size={13} style={{ color: "var(--accent-dim)", opacity: 0.7 }} />
           <p style={{
-            fontFamily: "DM Mono, monospace", fontSize: "12px", fontWeight: 400,
-            color: "var(--text-3)", letterSpacing: "0.1em",
+            fontFamily: "DM Serif Display, serif", fontSize: "16px", fontWeight: 400,
+            color: "#ffffff", letterSpacing: "0.06em",
             fontVariantNumeric: "tabular-nums",
           }}>
             {formatTime(elapsed)}
@@ -1027,7 +1354,7 @@ function SessionInner() {
         </Tooltip.Provider>
 
         {/* Progress indicator */}
-        <div style={{ position: "absolute", bottom: "-1px", left: 0, height: "1px", width: `${progressWidth}%`, background: "var(--accent)", opacity: 0.35, transition: "width 0.8s ease" }} />
+        <div style={{ position: "absolute", bottom: "-1px", left: 0, height: "2px", width: `${progressWidth}%`, background: "linear-gradient(90deg, var(--accent) 0%, #e8c872 100%)", opacity: 0.5, transition: "width 0.8s ease", boxShadow: "0 0 8px rgba(200,169,110,0.2)" }} />
       </div>
 
       {/* Messages — scrollable area between fixed header and footer */}
@@ -1051,9 +1378,10 @@ function SessionInner() {
               >
                 <div style={{
                   maxWidth: msg.role === "user" ? "58%" : "100%",
-                  padding: msg.role === "user" ? "12px 16px" : "0",
+                  padding: msg.role === "user" ? "14px 18px" : "0",
                   background: msg.role === "user" ? "var(--bg-2)" : "transparent",
                   border: msg.role === "user" ? "1px solid var(--border)" : "none",
+                  borderLeft: msg.role === "user" ? "2px solid var(--accent-dim)" : "none",
                   color: msg.role === "user" ? "var(--text-2)" : "var(--text)",
                   fontSize: msg.role === "assistant" ? "15px" : "13px",
                   lineHeight: msg.role === "assistant" ? "1.9" : "1.7",
@@ -1065,7 +1393,7 @@ function SessionInner() {
                     <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
                       <ReactMarkdown
                         remarkPlugins={[remarkGfm, remarkMath]}
-                        rehypePlugins={[rehypeKatex, rehypeRaw]}
+                        rehypePlugins={[rehypeKatex, rehypeRaw, [rehypeSanitize, sanitizeSchema]]}
                         components={{
                           p: ({ children }) => (
                             <p style={{ marginBottom: "16px", lineHeight: "1.9", fontSize: "15px", fontFamily: "DM Mono, monospace", fontWeight: 300, letterSpacing: "0.01em", color: "var(--text)" }}>
@@ -1106,7 +1434,7 @@ function SessionInner() {
                                     display: "flex", justifyContent: "center", alignItems: "center",
                                     overflowX: "auto",
                                   }}
-                                  dangerouslySetInnerHTML={{ __html: codeStr }}
+                                  dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(codeStr, { USE_PROFILES: { svg: true, svgFilters: true }, ADD_TAGS: ["foreignObject"], FORBID_TAGS: ["script", "style"], FORBID_ATTR: ["onerror", "onload", "onclick", "onmouseover"] }) }}
                                 />
                               )
                             }
@@ -1237,12 +1565,12 @@ function SessionInner() {
                   loop
                 />
               ) : (
-                <div style={{ display: "flex", gap: "6px", alignItems: "center", padding: "12px 0" }}>
+                <div style={{ display: "flex", gap: "7px", alignItems: "center", padding: "12px 0" }}>
                   {[0, 1, 2].map(i => (
                     <div key={i} style={{
-                      width: "6px", height: "6px", borderRadius: "50%",
-                      background: "var(--text-3)",
-                      animation: `dotPulse 0.9s ease-in-out ${i * 0.25}s infinite`
+                      width: "5px", height: "5px", borderRadius: "50%",
+                      background: "var(--accent-dim)",
+                      animation: `dotPulse 1.2s ease-in-out ${i * 0.2}s infinite`
                     }} />
                   ))}
                 </div>
@@ -1256,8 +1584,9 @@ function SessionInner() {
       {/* Input bar — fixed */}
       <div style={{
         position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 50,
-        background: "rgba(10,10,11,0.92)", backdropFilter: "blur(16px)", WebkitBackdropFilter: "blur(16px)",
+        background: "rgba(10,10,11,0.94)", backdropFilter: "blur(20px)", WebkitBackdropFilter: "blur(20px)",
         borderTop: "1px solid var(--border)",
+        boxShadow: "0 -1px 12px rgba(0,0,0,0.2)",
       }}>
         <div style={{ maxWidth: "1100px", margin: "0 auto", width: "100%", padding: "16px 32px" }}>
           <div className="session-input-bar" style={{
@@ -1523,12 +1852,12 @@ function SessionInner() {
           to   { transform: rotate(360deg); }
         }
         @keyframes pulse {
-          0%, 100% { opacity: 1; }
-          50%      { opacity: 0.3; }
+          0%, 100% { opacity: 1; box-shadow: 0 0 6px rgba(200,169,110,0.4); }
+          50%      { opacity: 0.4; box-shadow: 0 0 2px rgba(200,169,110,0.1); }
         }
         @keyframes dotPulse {
-          0%, 100% { opacity: 0.2; }
-          50%      { opacity: 1; }
+          0%, 100% { opacity: 0.15; transform: scale(1); }
+          50%      { opacity: 0.8; transform: scale(1.2); }
         }
         @keyframes drift1 {
           0%, 100% { transform: translate(0, 0); }
@@ -1558,6 +1887,51 @@ function SessionInner() {
         }
         .session-input-bar:focus-within {
           border-color: var(--text-3) !important;
+          box-shadow: 0 0 16px rgba(200,169,110,0.06), 0 0 4px rgba(200,169,110,0.03);
+        }
+        .session-input-bar {
+          transition: border-color 0.2s ease, box-shadow 0.3s ease;
+        }
+        @keyframes buddyBob {
+          0%, 100% { transform: translateY(0) rotate(0deg); }
+          50%      { transform: translateY(-4px) rotate(1deg); }
+        }
+        @keyframes buddyFlap {
+          0%   { transform: translateY(0); }
+          50%  { transform: translateY(-3px); }
+          100% { transform: translateY(0); }
+        }
+        @keyframes buddyHype {
+          0%   { transform: translateY(0) rotate(0deg) scale(1); }
+          25%  { transform: translateY(-14px) rotate(-8deg) scale(1.12); }
+          50%  { transform: translateY(-4px) rotate(6deg) scale(1.05); }
+          75%  { transform: translateY(-10px) rotate(-4deg) scale(1.1); }
+          100% { transform: translateY(0) rotate(0deg) scale(1); }
+        }
+        .buddy-wing-l {
+          animation: wingFlapL 0.35s ease-in-out infinite;
+          transform-origin: 8px 28px;
+        }
+        .buddy-wing-r {
+          animation: wingFlapR 0.35s ease-in-out infinite;
+          transform-origin: 40px 28px;
+        }
+        @keyframes wingFlapL {
+          0%, 100% { transform: rotate(0deg); }
+          50%      { transform: rotate(-45deg); }
+        }
+        @keyframes wingFlapR {
+          0%, 100% { transform: rotate(0deg); }
+          50%      { transform: rotate(45deg); }
+        }
+        @keyframes buddyMsgIn {
+          from { opacity: 0; transform: translateY(4px) scale(0.95); }
+          to   { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        @keyframes buddyMsgHype {
+          0%   { opacity: 0; transform: scale(0.7) rotate(-5deg); }
+          60%  { opacity: 1; transform: scale(1.08) rotate(2deg); }
+          100% { opacity: 1; transform: scale(1) rotate(0deg); }
         }
       `}</style>
 

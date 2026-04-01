@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk"
 import { NextRequest, NextResponse } from "next/server"
 import { createClient } from "@supabase/supabase-js"
+import { getAuthenticatedUser, unauthorizedResponse } from "@/lib/auth"
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
@@ -12,10 +13,13 @@ function getSupabase() {
 }
 
 export async function POST(req: NextRequest) {
+  const authenticatedUserId = await getAuthenticatedUser(req)
+  if (!authenticatedUserId) return unauthorizedResponse()
+
   try {
     const { userId } = await req.json()
-    if (!userId) {
-      return NextResponse.json({ error: "missing userId" }, { status: 400 })
+    if (!userId || userId !== authenticatedUserId) {
+      return NextResponse.json({ error: "unauthorized" }, { status: 403 })
     }
 
     const supabase = getSupabase()

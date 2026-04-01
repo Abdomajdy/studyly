@@ -23,7 +23,12 @@ body {
   font-size: 14px;
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
+  cursor: default;
 }
+
+*, *::before, *::after { cursor: inherit; }
+button, a, input, textarea, [role="button"] { cursor: pointer; }
+input, textarea { cursor: text; }
 
 h1, h2, h3 {
   font-family: 'DM Serif Display', serif;
@@ -40,7 +45,3 @@ h1, h2, h3 {
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 
-/* Custom cursor — hide native on pointer-precise devices (mouse/trackpad) */
-@media (pointer: fine) {
-  *, *::before, *::after { cursor: none !important; }
-}
