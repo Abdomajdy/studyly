@@ -114,11 +114,45 @@ export async function POST(req: NextRequest) {
       })
     }
 
+    // 6. AI-powered note extraction — expert note-taker pass
+    let sessionNotes: { type: string; title: string; body: string }[] = []
+    try {
+      const notesResponse = await anthropic.messages.create({
+        model: "claude-sonnet-4-5-20250929",
+        max_tokens: 1500,
+        system: `You are an expert note-taker reviewing a study session transcript. Extract ONLY the most valuable notes — things a student would want to review before an exam. Be extremely selective. Quality over quantity.`,
+        messages: [{
+          role: "user",
+          content: `Review this study session on "${topic}" and extract notes.\n\nTRANSCRIPT:\n${transcript}\n\nExtract notes in these categories ONLY when genuinely present:\n- "struggle": Where the student got confused or made a mistake. Include what they got wrong AND the correct answer/explanation.\n- "key_concept": A core definition or concept the AI explained that the student needs to know.\n- "formula": An important equation or formula discussed.\n- "insight": A non-obvious insight or trick that would help on an exam.\n\nRules:\n- Maximum 6 notes total. Fewer is better.\n- Skip anything trivial or obvious.\n- Each note must be specific and self-contained (readable without the transcript).\n- "struggle" notes MUST include both the mistake and the correction.\n\nReturn ONLY a JSON array — no other text:\n[\n  { "type": "struggle", "title": "<short label>", "body": "<what went wrong + correct answer>" },\n  { "type": "key_concept", "title": "<term>", "body": "<clear definition>" },\n  ...\n]`
+        }]
+      })
+      const notesText = notesResponse.content[0].type === "text" ? notesResponse.content[0].text : "[]"
+      sessionNotes = JSON.parse(notesText.replace(/```json|```/g, "").trim())
+    } catch (notesErr) {
+      console.error("[end-session] notes extraction failed:", notesErr)
+    }
+
+    // 7. Save notes to database
+    if (sessionNotes.length > 0 && sessionId) {
+      const noteRows = sessionNotes.map(n => ({
+        session_id: sessionId,
+        user_id: userId,
+        topic,
+        course: courseName,
+        type: n.type,
+        title: n.title,
+        body: n.body,
+      }))
+      const { error: notesInsertErr } = await supabase.from("session_notes").insert(noteRows)
+      if (notesInsertErr) console.error("[end-session] notes insert failed:", notesInsertErr)
+    }
+
     return NextResponse.json({
       ...evaluation,
       newScore,
       scoreBefore,
-      durationMinutes
+      durationMinutes,
+      sessionNotes
     })
   } catch (err) {
     console.error("[end-session] error:", err)

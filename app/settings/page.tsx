@@ -27,6 +27,11 @@ export default function SettingsPage() {
   const [editingUniversity, setEditingUniversity] = useState(false)
   const [savedField, setSavedField] = useState<string | null>(null)
 
+  // Preferences
+  const [theme, setTheme] = useState<"dark" | "light">("dark")
+  const [defaultStudyMode, setDefaultStudyMode] = useState<"deep" | "casual" | "cram">("deep")
+  const [sessionReminders, setSessionReminders] = useState(true)
+
   // Courses (read-only for sidebar)
   const [courses, setCourses] = useState<UserCourse[]>([])
 
@@ -60,11 +65,36 @@ export default function SettingsPage() {
       const { data: userCourses } = await supabase.from("user_courses").select("id, course_name, course_code, exam_date").eq("user_id", user.id).order("created_at", { ascending: true })
       if (userCourses) setCourses(userCourses)
 
+      // Load preferences from localStorage
+      const savedTheme = localStorage.getItem("studyly-theme") as "dark" | "light" | null
+      if (savedTheme) setTheme(savedTheme)
+      const savedMode = localStorage.getItem("studyly-study-mode") as "deep" | "casual" | "cram" | null
+      if (savedMode) setDefaultStudyMode(savedMode)
+      const savedReminders = localStorage.getItem("studyly-reminders")
+      if (savedReminders !== null) setSessionReminders(savedReminders === "true")
+
       setLoading(false)
       setTimeout(() => setVisible(true), 50)
     }
     load()
   }, [router])
+
+  function toggleTheme(t: "dark" | "light") {
+    setTheme(t)
+    localStorage.setItem("studyly-theme", t)
+    if (t === "light") document.documentElement.setAttribute("data-theme", "light")
+    else document.documentElement.removeAttribute("data-theme")
+  }
+
+  function saveStudyMode(m: "deep" | "casual" | "cram") {
+    setDefaultStudyMode(m)
+    localStorage.setItem("studyly-study-mode", m)
+  }
+
+  function toggleReminders(v: boolean) {
+    setSessionReminders(v)
+    localStorage.setItem("studyly-reminders", String(v))
+  }
 
   const avgMastery = mastery.length > 0
     ? Math.round(mastery.reduce((s, m) => s + m.score, 0) / mastery.length)
@@ -196,7 +226,90 @@ export default function SettingsPage() {
             </div>
           </div>
 
-          {/* ── Section 2: Account ──────────────────────────────────────────── */}
+          {/* ── Section 2: Appearance ─────────────────────────────────────── */}
+          <div style={{ borderTop: "1px solid var(--border)", paddingTop: "40px", marginBottom: "40px" }}>
+            <p style={{ color: "var(--text-3)", fontSize: "10px", letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: "20px" }}>appearance</p>
+
+            <p style={{ color: "var(--text-3)", fontSize: "11px", marginBottom: "10px" }}>theme</p>
+            <div style={{ display: "flex", gap: "8px", marginBottom: "24px" }}>
+              {(["dark", "light"] as const).map(t => (
+                <button
+                  key={t}
+                  onClick={() => toggleTheme(t)}
+                  style={{
+                    flex: 1,
+                    background: theme === t ? "var(--bg-3)" : "var(--bg-2)",
+                    border: `1px solid ${theme === t ? "var(--accent)" : "var(--border)"}`,
+                    color: theme === t ? "var(--accent)" : "var(--text-3)",
+                    padding: "14px",
+                    fontFamily: "DM Mono, monospace", fontSize: "12px",
+                    letterSpacing: "0.08em", textTransform: "uppercase",
+                    cursor: "pointer", transition: "all 0.2s",
+                  }}
+                >
+                  {t === "dark" ? "◑ dark" : "○ light"}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* ── Section 3: Study Preferences ──────────────────────────────────── */}
+          <div style={{ borderTop: "1px solid var(--border)", paddingTop: "40px", marginBottom: "40px" }}>
+            <p style={{ color: "var(--text-3)", fontSize: "10px", letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: "20px" }}>study preferences</p>
+
+            <p style={{ color: "var(--text-3)", fontSize: "11px", marginBottom: "10px" }}>default study mode</p>
+            <div style={{ display: "flex", gap: "8px", marginBottom: "24px" }}>
+              {([
+                { key: "deep" as const, label: "deep focus" },
+                { key: "casual" as const, label: "casual" },
+                { key: "cram" as const, label: "exam cram" },
+              ]).map(m => (
+                <button
+                  key={m.key}
+                  onClick={() => saveStudyMode(m.key)}
+                  style={{
+                    flex: 1,
+                    background: defaultStudyMode === m.key ? "var(--bg-3)" : "var(--bg-2)",
+                    border: `1px solid ${defaultStudyMode === m.key ? "var(--accent)" : "var(--border)"}`,
+                    color: defaultStudyMode === m.key ? "var(--accent)" : "var(--text-3)",
+                    padding: "14px",
+                    fontFamily: "DM Mono, monospace", fontSize: "12px",
+                    letterSpacing: "0.06em", textTransform: "uppercase",
+                    cursor: "pointer", transition: "all 0.2s",
+                  }}
+                >
+                  {m.label}
+                </button>
+              ))}
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div>
+                <p style={{ color: "var(--text-2)", fontSize: "13px", fontFamily: "DM Mono, monospace" }}>session reminders</p>
+                <p style={{ color: "var(--text-3)", fontSize: "11px", marginTop: "2px" }}>get nudged if you haven&apos;t studied in a while</p>
+              </div>
+              <button
+                onClick={() => toggleReminders(!sessionReminders)}
+                style={{
+                  width: "44px", height: "24px", borderRadius: "12px",
+                  background: sessionReminders ? "var(--accent)" : "var(--bg-3)",
+                  border: `1px solid ${sessionReminders ? "var(--accent)" : "var(--border)"}`,
+                  cursor: "pointer", position: "relative", transition: "all 0.2s",
+                  flexShrink: 0,
+                }}
+              >
+                <div style={{
+                  width: "18px", height: "18px", borderRadius: "50%",
+                  background: sessionReminders ? "var(--bg)" : "var(--text-3)",
+                  position: "absolute", top: "2px",
+                  left: sessionReminders ? "22px" : "2px",
+                  transition: "left 0.2s",
+                }} />
+              </button>
+            </div>
+          </div>
+
+          {/* ── Section 4: Account ──────────────────────────────────────────── */}
           <div style={{ borderTop: "1px solid var(--border)", paddingTop: "40px" }}>
             <p style={{ color: "var(--text-3)", fontSize: "10px", letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: "20px" }}>account</p>
 

@@ -68,6 +68,9 @@ export default function DashboardPage() {
   const [newCourseName, setNewCourseName] = useState("")
   const [newCourseCode, setNewCourseCode] = useState("")
   const [newExamDate, setNewExamDate] = useState("")
+  const [syllabusFile, setSyllabusFile] = useState<File | null>(null)
+  const [syllabusParsing, setSyllabusParsing] = useState(false)
+  const [syllabusResult, setSyllabusResult] = useState<{ topics: string[]; events: { title: string; date: string; type: string }[] } | null>(null)
 
   // Social state
   const [friends, setFriends] = useState<FriendWithPresence[]>([])
@@ -262,7 +265,51 @@ export default function DashboardPage() {
     setNewCourseCode("")
     setNewExamDate("")
     setShowAddCourse(false)
-    toast.success("course added")
+
+    // If syllabus file was uploaded, parse it after course is created
+    if (syllabusFile && data) {
+      setSyllabusParsing(true)
+      try {
+        const pdfjs = await import("pdfjs-dist")
+        pdfjs.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`
+        const arrayBuffer = await syllabusFile.arrayBuffer()
+        const pdf = await pdfjs.getDocument({ data: arrayBuffer }).promise
+        let fullText = ""
+        for (let i = 1; i <= Math.min(pdf.numPages, 20); i++) {
+          const page = await pdf.getPage(i)
+          const content = await page.getTextContent()
+          fullText += content.items.map((item: unknown) => (item as { str?: string }).str || "").join(" ") + "\n"
+        }
+
+        const res = await fetch("/api/parse-syllabus", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: fullText, courseName: data.course_name, courseId: data.id }),
+        })
+        if (res.ok) {
+          const result = await res.json()
+          setSyllabusResult(result)
+          // Refresh mastery data
+          const masteryData = await getMastery(user.id)
+          setMastery(masteryData)
+          // Refresh calendar events
+          const { data: evts } = await supabase.from("calendar_events").select("id, date, title, type").eq("user_id", user.id)
+          if (evts) setCalendarEvents(evts)
+          toast.success(`Added ${result.topicsInserted} topics and ${result.eventsInserted} dates`)
+        } else {
+          toast.error("Failed to parse syllabus")
+        }
+      } catch (err) {
+        console.error("[syllabus]", err)
+        toast.error("Error parsing syllabus")
+      } finally {
+        setSyllabusParsing(false)
+        setSyllabusFile(null)
+        setSyllabusResult(null)
+      }
+    } else {
+      toast.success("course added")
+    }
   }
 
   async function deleteCalendarEvent(id: string) {
@@ -410,8 +457,8 @@ export default function DashboardPage() {
               {/* Lock In button */}
               <button
                 onClick={() => router.push("/session")}
-                className="lock-in-btn"
-                style={{ width: "100%", background: "linear-gradient(135deg, #f0ede8 0%, #d8d3ca 100%)", color: "var(--bg)", border: "none", padding: "20px", fontFamily: "DM Mono, monospace", fontSize: "14px", fontWeight: 500, cursor: "pointer", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "24px", transition: "all 0.3s ease", position: "relative", overflow: "hidden" }}
+                className="lock-in-btn dark-fixed"
+                style={{ width: "100%", background: "linear-gradient(135deg, #f0ede8 0%, #d8d3ca 100%)", color: "#0a0a0b", border: "none", padding: "20px", fontFamily: "DM Mono, monospace", fontSize: "14px", fontWeight: 500, cursor: "pointer", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "24px", transition: "all 0.3s ease", position: "relative", overflow: "hidden" }}
               >Lock In</button>
 
               {/* First-time user callout */}
@@ -493,21 +540,39 @@ export default function DashboardPage() {
                       />
                       <button
                         onClick={addCourse}
-                        disabled={!newCourseName.trim()}
+                        disabled={!newCourseName.trim() || syllabusParsing}
                         style={{
-                          background: newCourseName.trim() ? "var(--text)" : "var(--bg-3)",
-                          color: newCourseName.trim() ? "var(--bg)" : "var(--text-3)",
+                          background: newCourseName.trim() && !syllabusParsing ? "var(--text)" : "var(--bg-3)",
+                          color: newCourseName.trim() && !syllabusParsing ? "var(--bg)" : "var(--text-3)",
                           border: "none", padding: "10px 20px", fontFamily: "DM Mono, monospace", fontSize: "11px",
-                          cursor: newCourseName.trim() ? "pointer" : "not-allowed",
+                          cursor: newCourseName.trim() && !syllabusParsing ? "pointer" : "not-allowed",
                           letterSpacing: "0.08em", textTransform: "uppercase", transition: "all 0.15s",
                           flexShrink: 0,
                         }}
                       >
-                        Add
+                        {syllabusParsing ? "Parsing..." : "Add"}
                       </button>
                     </div>
+                    {/* Syllabus upload */}
+                    <label style={{
+                      display: "flex", alignItems: "center", justifyContent: "center", gap: "8px",
+                      marginTop: "8px", padding: "14px",
+                      border: `1px dashed ${syllabusFile ? "var(--accent)" : "var(--border)"}`,
+                      background: syllabusFile ? "rgba(200,169,110,0.04)" : "transparent",
+                      cursor: "pointer", transition: "all 0.2s",
+                      color: syllabusFile ? "var(--accent)" : "var(--text-3)",
+                      fontSize: "11px", fontFamily: "DM Mono, monospace", letterSpacing: "0.08em", textTransform: "uppercase",
+                    }}>
+                      <input
+                        type="file"
+                        accept=".pdf"
+                        style={{ display: "none" }}
+                        onChange={e => { if (e.target.files?.[0]) setSyllabusFile(e.target.files[0]) }}
+                      />
+                      {syllabusFile ? `✓ ${syllabusFile.name}` : "↑ upload syllabus (pdf) — auto-adds topics + dates"}
+                    </label>
                     <p style={{ color: "var(--text-3)", fontSize: "10px", fontFamily: "DM Mono, monospace", marginTop: "8px" }}>
-                      exam date is optional — add it when you know it
+                      {syllabusFile ? "topics and exam dates will be extracted automatically" : "exam date is optional — add it when you know it"}
                     </p>
                   </div>
                   </div>
@@ -546,16 +611,14 @@ export default function DashboardPage() {
                       return (
                         <div
                           key={course.id}
-                          onMouseOver={() => setHoveredRow(`course-${course.id}`)}
-                          onMouseOut={() => setHoveredRow(null)}
+                          className="course-card dark-fixed"
                           onClick={() => router.push(`/course?name=${encodeURIComponent(course.course_name)}`)}
                           style={{
-                            background: isHov ? "var(--bg-3)" : "var(--bg-2)",
+                            background: "var(--bg-2)",
                             border: "1px solid var(--border)",
                             borderLeft: `3px solid ${courseAvg !== null ? getScoreColor(courseAvg) : "var(--accent-dim)"}`,
                             padding: "24px",
                             cursor: "pointer",
-                            boxShadow: isHov ? "0 8px 32px rgba(0,0,0,0.3), 0 0 0 1px rgba(200,169,110,0.06)" : "0 0 0 rgba(0,0,0,0)",
                             transition: "box-shadow 0.25s ease, background 0.25s ease",
                             opacity: 0, animation: "fadeIn 0.4s ease forwards",
                             animationDelay: `${ci * 0.08}s`,
@@ -632,12 +695,10 @@ export default function DashboardPage() {
                             )}
                           </div>
 
-                          {/* Hover CTA */}
-                          {isHov && (
-                            <p style={{ color: "var(--accent)", fontSize: "10px", fontFamily: "DM Mono, monospace", letterSpacing: "0.08em", textTransform: "uppercase", marginTop: "12px" }}>
-                              {weakestInCourse ? `lock in on ${weakestInCourse.topic} →` : "start a session →"}
-                            </p>
-                          )}
+                          {/* Hover CTA — always in DOM to prevent height shift */}
+                          <p className="course-card-cta" style={{ color: "var(--accent)", fontSize: "10px", fontFamily: "DM Mono, monospace", letterSpacing: "0.08em", textTransform: "uppercase", marginTop: "12px", opacity: 0, transition: "opacity 0.2s ease" }}>
+                            {weakestInCourse ? `lock in on ${weakestInCourse.topic} →` : "start a session →"}
+                          </p>
                         </div>
                       )
                     })}
@@ -659,7 +720,7 @@ export default function DashboardPage() {
               }}
             >
               {/* Calendar */}
-              <div style={{ background: "var(--bg-2)", border: "1px solid var(--border)", padding: "24px", marginBottom: "20px" }}>
+              <div className="dark-fixed" style={{ background: "var(--bg-2)", border: "1px solid var(--border)", padding: "24px", marginBottom: "20px" }}>
                 {/* Month navigation */}
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
                   <button
@@ -947,7 +1008,7 @@ export default function DashboardPage() {
                 }
 
                 return (
-                  <div style={{ marginBottom: "20px" }}>
+                  <div className="dark-fixed" style={{ marginBottom: "20px", background: "var(--bg-2)", border: "1px solid var(--border)", padding: "16px 20px" }}>
                     <p style={{ color: "var(--text-3)", fontSize: "10px", letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: "10px" }}>
                       upcoming
                     </p>
@@ -1007,6 +1068,7 @@ export default function DashboardPage() {
 
                 return (
                   <div
+                    className="dark-fixed"
                     onClick={() => router.push(`/session?topic=${encodeURIComponent(weakest.topic)}`)}
                     style={{
                       borderLeft: "2px solid var(--accent)",
@@ -1014,9 +1076,10 @@ export default function DashboardPage() {
                       marginBottom: "20px",
                       cursor: "pointer",
                       transition: "background 0.15s",
+                      background: "var(--bg-2)",
                     }}
-                    onMouseOver={e => (e.currentTarget.style.background = "var(--bg-2)")}
-                    onMouseOut={e => (e.currentTarget.style.background = "transparent")}
+                    onMouseOver={e => (e.currentTarget.style.background = "var(--bg-3)")}
+                    onMouseOut={e => (e.currentTarget.style.background = "var(--bg-2)")}
                   >
                     <p style={{ color: "var(--accent)", fontSize: "9px", letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: "4px" }}>
                       SUGGESTED NEXT
@@ -1030,7 +1093,7 @@ export default function DashboardPage() {
 
               {/* Needs work */}
               {weakTopics.length > 0 && (
-                <div>
+                <div className="dark-fixed" style={{ background: "var(--bg-2)", border: "1px solid var(--border)", padding: "16px 20px" }}>
                   <p style={{ color: "var(--text-3)", fontSize: "10px", letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: "10px" }}>
                     needs work
                   </p>
@@ -1088,6 +1151,13 @@ export default function DashboardPage() {
         }
         @media (prefers-reduced-motion: reduce) {
           * { transition-duration: 0.01ms !important; }
+        }
+        .course-card:hover {
+          background: var(--bg-3) !important;
+          box-shadow: 0 8px 32px rgba(0,0,0,0.3), 0 0 0 1px rgba(200,169,110,0.06);
+        }
+        .course-card:hover .course-card-cta {
+          opacity: 1 !important;
         }
         .lock-in-btn:hover {
           box-shadow: 0 0 24px rgba(200,169,110,0.15), 0 4px 16px rgba(0,0,0,0.2);

@@ -307,6 +307,7 @@ export default function SessionsPage() {
                         onClick={() => router.push(`/session?id=${heroSession.id}&topic=${encodeURIComponent(heroSession.topic)}`)}
                         onMouseOver={() => setHoveredId("hero")}
                         onMouseOut={() => setHoveredId(null)}
+                        className="dark-fixed"
                         style={{
                           background: "var(--bg-2)",
                           border: "1px solid var(--accent-dim)",
@@ -354,6 +355,7 @@ export default function SessionsPage() {
                         onClick={() => router.push(`/session?id=${lastCompleted.id}&topic=${encodeURIComponent(lastCompleted.topic)}`)}
                         onMouseOver={() => setHoveredId("hero")}
                         onMouseOut={() => setHoveredId(null)}
+                        className="dark-fixed"
                         style={{
                           background: "var(--bg-2)",
                           border: `1px solid ${evaluation ? getQualityColor(evaluation.session_quality) + "33" : "var(--border)"}`,
@@ -438,6 +440,7 @@ export default function SessionsPage() {
                           onClick={() => router.push(`/session?id=${session.id}&topic=${encodeURIComponent(session.topic)}`)}
                           onMouseOver={() => setHoveredId(session.id)}
                           onMouseOut={() => setHoveredId(null)}
+                          className="dark-fixed"
                           style={{
                             background: "var(--bg-2)",
                             borderLeft: evaluation ? `2px solid ${getQualityColor(evaluation.session_quality)}` : "2px solid var(--border)",

@@ -550,7 +550,7 @@ function CoursePage() {
           {/* ═══════════════════════════════════════════════════════════════
               TWO-COLUMN LAYOUT: Topics + Activity
               ═══════════════════════════════════════════════════════════ */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 340px", gap: "40px", marginBottom: "48px" }}>
+          <div className="dark-fixed" style={{ display: "grid", gridTemplateColumns: "1fr 340px", gap: "40px", marginBottom: "48px" }}>
 
             {/* ── LEFT: Topic mastery cards ────────────────────────────────── */}
             <div>

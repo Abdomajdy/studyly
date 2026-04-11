@@ -152,7 +152,7 @@ function RadarChart({ scores }: { scores: NumericScores }) {
         .attr("cx", 0).attr("cy", 0)
         .attr("r", 4)
         .attr("fill", "#c8a96e")
-        .attr("stroke", "#0a0a0b")
+        .attr("stroke", getComputedStyle(document.documentElement).getPropertyValue("--bg").trim())
         .attr("stroke-width", 2)
         .transition()
         .duration(1000)
@@ -200,7 +200,7 @@ function HourHeatmap({ hourCounts }: { hourCounts: Record<number, number> }) {
               border: "1px solid var(--border)",
               display: "flex", alignItems: "center", justifyContent: "center",
               fontSize: "9px", fontFamily: "DM Mono, monospace",
-              color: intensity > 0.5 ? "#0a0a0b" : "#4a4a4a",
+              color: intensity > 0.5 ? "#0a0a0b" : "var(--text-3)",
               cursor: "default",
             }}
           >
@@ -452,7 +452,7 @@ export default function PatternsPage() {
           )}
 
           {analysis && !analyzing && (
-            <>
+            <div className="dark-fixed" style={{ display: "contents" }}>
               {/* ── Archetype Hero ────────────────────────────────────────── */}
               <div style={{
                 border: "1px solid var(--border)",
@@ -641,7 +641,7 @@ export default function PatternsPage() {
                   </div>
                 </div>
               )}
-            </>
+            </div>
           )}
         </div>
       </div>

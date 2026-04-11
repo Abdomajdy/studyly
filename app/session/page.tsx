@@ -32,7 +32,7 @@ import {
 import PlotlyChart from "@/components/PlotlyChart"
 import DesmosEmbed from "@/components/DesmosEmbed"
 import P5Sketch from "@/components/P5Sketch"
-import TopicSuggestions from "@/components/TopicSuggestions"
+// TopicSuggestions removed — replaced by course dropdown + multi-topic picker
 import RecapCard from "@/components/RecapCard"
 import "katex/dist/katex.min.css"
 
@@ -49,11 +49,11 @@ const sanitizeSchema = {
     div: ["className", "class", "style"],
     svg: ["viewBox", "width", "height", "xmlns", "fill", "stroke"],
     g: ["transform", "fill", "stroke"],
-    path: ["d", "fill", "stroke", "strokeWidth", "stroke-width"],
-    line: ["x1", "y1", "x2", "y2", "stroke", "strokeWidth", "stroke-width"],
+    path: ["d", "fill", "stroke", "strokeWidth"],
+    line: ["x1", "y1", "x2", "y2", "stroke", "strokeWidth"],
     rect: ["x", "y", "width", "height", "fill", "stroke", "rx", "ry"],
     circle: ["cx", "cy", "r", "fill", "stroke"],
-    text: ["x", "y", "fill", "fontSize", "font-size", "fontFamily", "font-family", "textAnchor", "text-anchor"],
+    text: ["x", "y", "fill", "fontSize", "fontFamily", "textAnchor"],
   },
 }
 
@@ -89,15 +89,11 @@ const BUDDY_HYPE_MESSAGES = [
 
 const CORRECT_SIGNALS = /\bcorrect\b|\bright\b|\bexactly\b|\bperfect\b|\bwell done\b|\bgreat job\b|\bnice work\b|\bnailed it\b|\bspot on\b|\byes!\b|\bthat's it\b|\bgood thinking\b/i
 
-// Side positions: left margin or right margin — never over the chat (center)
-const BUDDY_SIDES = {
-  left:  [2, 4, 6, 8, 10],   // % from left — well clear of centered chat
-  right: [86, 88, 90, 92, 94], // % from left — right side, clear of chat
-}
+// Owl only hovers on the right — left is reserved for notes panel
+const BUDDY_RIGHT_POSITIONS = [86, 88, 90, 92, 94] // % from left
 
 function StudyBuddy({ messageCount, lastAiMessage }: { messageCount: number; lastAiMessage: string }) {
-  const [side, setSide] = useState<"left" | "right">("left")
-  const [xPct, setXPct] = useState(4)
+  const [xPct, setXPct] = useState(90)
   const [yPct, setYPct] = useState(-10) // start above viewport
   const [msg, setMsg] = useState<string | null>(null)
   const [hype, setHype] = useState(false)
@@ -109,35 +105,19 @@ function StudyBuddy({ messageCount, lastAiMessage }: { messageCount: number; las
   const msgIndexRef = useRef(0)
   const prevAiRef = useRef("")
 
-  // Pick a random x on a given side
-  function pickX(s: "left" | "right") {
-    const opts = BUDDY_SIDES[s]
-    return opts[Math.floor(Math.random() * opts.length)]
+  function pickX() {
+    return BUDDY_RIGHT_POSITIONS[Math.floor(Math.random() * BUDDY_RIGHT_POSITIONS.length)]
   }
 
-  // Drop to a new Y on the same side (upper half: 12-40%)
+  // Drop to a new Y on the right side (upper half: 12-40%)
   function dropToNewY() {
     setFlapping(true)
-    setYPct(-8) // fly up off screen first
+    setXPct(pickX())
+    setYPct(-8)
     setTimeout(() => {
-      setYPct(12 + Math.random() * 28) // drop to new spot
+      setYPct(12 + Math.random() * 28)
       setTimeout(() => setFlapping(false), 1800)
     }, 800)
-  }
-
-  // Change sides: fly up, switch x, drop down
-  function changeSide() {
-    const newSide = side === "left" ? "right" : "left"
-    setFlapping(true)
-    setYPct(-8) // fly up
-    setTimeout(() => {
-      setSide(newSide)
-      setXPct(pickX(newSide))
-      setTimeout(() => {
-        setYPct(12 + Math.random() * 28) // drop to new spot
-        setTimeout(() => setFlapping(false), 1800)
-      }, 300) // brief pause at top before dropping
-    }, 900)
   }
 
   // Blink
@@ -154,7 +134,7 @@ function StudyBuddy({ messageCount, lastAiMessage }: { messageCount: number; las
     const initialTimer = setTimeout(() => {
       setVisible(true)
       setFlapping(true)
-      setXPct(pickX("left"))
+      setXPct(pickX())
       // Drop in from top
       setTimeout(() => {
         setYPct(15 + Math.random() * 20)
@@ -172,12 +152,7 @@ function StudyBuddy({ messageCount, lastAiMessage }: { messageCount: number; las
       setTimeout(() => setMsg(null), 4000)
 
       timerRef.current = setTimeout(() => {
-        // Alternate: sometimes change sides, sometimes just drop on same side
-        if (Math.random() > 0.5) {
-          changeSide()
-        } else {
-          dropToNewY()
-        }
+        dropToNewY()
         setTimeout(() => showIdle(), 2200)
       }, 18000 + Math.random() * 12000)
     }
@@ -222,7 +197,7 @@ function StudyBuddy({ messageCount, lastAiMessage }: { messageCount: number; las
 
   if (!visible) return null
 
-  const isLeft = side === "left"
+  const isLeft = false // owl always on right
 
   return (
     <div
@@ -395,7 +370,7 @@ function MermaidDiagram({ code }: { code: string }) {
 
   return (
     <div ref={ref} style={{
-      background: "#1a1a1e", border: "1px solid var(--border)",
+      background: "var(--bg-3)", border: "1px solid var(--border)",
       padding: "24px", marginBottom: "16px",
       overflowX: "auto", display: "flex", justifyContent: "center",
     }} />
@@ -578,6 +553,9 @@ function SessionInner() {
   const [messageIndex, setMessageIndex] = useState(0)
   const [aiMessageTime, setAiMessageTime] = useState<number | null>(null)
   const [course, setCourse] = useState("")
+  const [userCourses, setUserCourses] = useState<{ id: string; course_name: string }[]>([])
+  const [courseTopics, setCourseTopics] = useState<string[]>([])
+  const [selectedTopics, setSelectedTopics] = useState<string[]>([])
   const [studyMode, setStudyMode] = useState<"deep" | "casual" | "cram">("deep")
   const [statedGoal, setStatedGoal] = useState("")
   const [goalStep, setGoalStep] = useState(false)
@@ -684,9 +662,41 @@ function SessionInner() {
         )
       }
       if (count) setTotalSessions(count)
+
+      // Load user's courses for dropdown
+      const { data: courses } = await supabase
+        .from("user_courses")
+        .select("id, course_name")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false })
+      if (courses?.length) setUserCourses(courses)
     }
     loadContext()
   }, [])
+
+  // ── Load topics when course changes ──────────────────────────────────────
+  useEffect(() => {
+    if (!course.trim()) { setCourseTopics([]); setSelectedTopics([]); return }
+    async function loadTopics() {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+      const { data } = await supabase
+        .from("topic_mastery")
+        .select("topic")
+        .eq("user_id", user.id)
+        .eq("course", course)
+        .order("topic")
+      if (data?.length) setCourseTopics(data.map(r => r.topic))
+      else setCourseTopics([])
+      setSelectedTopics([])
+    }
+    loadTopics()
+  }, [course])
+
+  // ── Sync selectedTopics → topic string ──────────────────────────────────
+  useEffect(() => {
+    setTopic(selectedTopics.join(", "))
+  }, [selectedTopics])
 
   // ── Init: check URL params ────────────────────────────────────────────────
   useEffect(() => {
@@ -831,6 +841,7 @@ function SessionInner() {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" })
   }, [messages])
+
 
   useEffect(() => {
     if (!topicSet) return
@@ -998,7 +1009,7 @@ function SessionInner() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) { router.push("/dashboard"); return }
 
-      // Single server call handles: evaluate + mastery + end session + recap
+      // Single server call handles: evaluate + mastery + end session + recap + notes
       const res = await fetch("/api/end-session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1148,27 +1159,86 @@ function SessionInner() {
   if (!topicSet) {
     return (
       <div style={{ minHeight: "100vh", background: "var(--bg)", display: "flex", alignItems: "center", justifyContent: "center", paddingTop: "76px", paddingRight: "24px", paddingBottom: "24px", paddingLeft: "24px", opacity: visible ? 1 : 0, transition: "opacity 0.6s ease", position: "relative", overflow: "hidden" }}>
-        {/* Ambient glow behind entry form */}
-        <div style={{ position: "absolute", top: "20%", left: "50%", transform: "translateX(-50%)", width: "600px", height: "600px", borderRadius: "50%", background: "radial-gradient(circle, rgba(200,169,110,0.04) 0%, transparent 65%)", pointerEvents: "none" }} />
         <div style={{ width: "100%", maxWidth: "520px", position: "relative", zIndex: 1 }}>
           <p style={{ color: "var(--accent)", fontSize: "11px", letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: "20px", fontFamily: "DM Mono, monospace" }}>SESSION</p>
           <h1 style={{ fontFamily: "DM Serif Display, serif", fontSize: "36px", color: "var(--text)", marginBottom: "8px", letterSpacing: "-0.02em" }}>What are we locking in on?</h1>
-          <p style={{ color: "var(--text-3)", fontSize: "13px", marginBottom: "40px" }}>Topic, chapter, concept. Be specific.</p>
+          <p style={{ color: "var(--text-3)", fontSize: "13px", marginBottom: "40px" }}>Pick your course and select the topics you want to study.</p>
 
-          <input
-            type="text"
-            placeholder="course name (optional)..."
-            value={course}
-            onChange={e => setCourse(e.target.value)}
-            style={{
-              width: "100%", background: "var(--bg-2)", color: "var(--text)",
-              border: "1px solid var(--border)", padding: "14px 20px",
-              fontFamily: "DM Mono, monospace", fontSize: "14px",
-              outline: "none", marginBottom: "12px", transition: "border-color 0.2s"
-            }}
-            onFocus={e => (e.currentTarget.style.borderColor = "var(--text-3)")}
-            onBlur={e => (e.currentTarget.style.borderColor = "var(--border)")}
-          />
+          {/* Course dropdown */}
+          <div style={{ marginBottom: "12px" }}>
+            <p style={{ color: "var(--text-3)", fontSize: "10px", letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: "8px", fontFamily: "DM Mono, monospace" }}>
+              COURSE
+            </p>
+            {userCourses.length > 0 ? (
+              <select
+                value={course}
+                onChange={e => setCourse(e.target.value)}
+                style={{
+                  width: "100%", background: "var(--bg-2)", color: course ? "var(--text)" : "var(--text-3)",
+                  border: "1px solid var(--border)", padding: "14px 20px",
+                  fontFamily: "DM Mono, monospace", fontSize: "14px",
+                  outline: "none", cursor: "pointer", appearance: "none",
+                  backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238a8a8a' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E\")",
+                  backgroundRepeat: "no-repeat", backgroundPosition: "right 16px center",
+                }}
+              >
+                <option value="" style={{ background: "var(--bg-2)", color: "var(--text-3)" }}>select a course...</option>
+                {userCourses.map(c => (
+                  <option key={c.id} value={c.course_name} style={{ background: "var(--bg-2)", color: "var(--text)" }}>
+                    {c.course_name}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <p style={{ color: "var(--text-3)", fontSize: "12px", fontFamily: "DM Mono, monospace", padding: "14px 0" }}>
+                no courses yet — <span onClick={() => router.push("/dashboard")} style={{ color: "var(--accent)", cursor: "pointer", textDecoration: "underline" }}>add one from dashboard</span>
+              </p>
+            )}
+          </div>
+
+          {/* Topic multi-select */}
+          {course && courseTopics.length > 0 && (
+            <div style={{ marginBottom: "16px" }}>
+              <p style={{ color: "var(--text-3)", fontSize: "10px", letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: "10px", fontFamily: "DM Mono, monospace" }}>
+                TOPICS — tap to select
+              </p>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+                {courseTopics.map(t => {
+                  const isSelected = selectedTopics.includes(t)
+                  return (
+                    <button
+                      key={t}
+                      onClick={() => setSelectedTopics(prev =>
+                        isSelected ? prev.filter(x => x !== t) : [...prev, t]
+                      )}
+                      style={{
+                        background: isSelected ? "var(--bg-3)" : "none",
+                        border: `1px solid ${isSelected ? "var(--accent)" : "var(--border)"}`,
+                        color: isSelected ? "var(--accent)" : "var(--text-3)",
+                        fontFamily: "DM Mono, monospace", fontSize: "11px",
+                        letterSpacing: "0.06em", padding: "7px 14px",
+                        cursor: "pointer", transition: "all 0.15s",
+                      }}
+                    >
+                      {isSelected && <Check size={10} style={{ display: "inline", marginRight: "4px", verticalAlign: "middle" }} />}
+                      {t}
+                    </button>
+                  )
+                })}
+              </div>
+              {selectedTopics.length > 0 && (
+                <p style={{ color: "var(--text-2)", fontSize: "11px", fontFamily: "DM Mono, monospace", marginTop: "10px" }}>
+                  {selectedTopics.length} topic{selectedTopics.length > 1 ? "s" : ""} selected
+                </p>
+              )}
+            </div>
+          )}
+
+          {course && courseTopics.length === 0 && (
+            <p style={{ color: "var(--text-3)", fontSize: "12px", fontFamily: "DM Mono, monospace", marginBottom: "16px", padding: "14px 0" }}>
+              no topics yet — upload a syllabus from the <span onClick={() => router.push("/dashboard")} style={{ color: "var(--accent)", cursor: "pointer", textDecoration: "underline" }}>dashboard</span> to populate topics
+            </p>
+          )}
 
           {/* Study mode picker */}
           <div style={{ marginBottom: "16px" }}>
@@ -1213,10 +1283,6 @@ function SessionInner() {
             </div>
           </div>
 
-          <TopicSuggestions courseName={course} onSelect={(t) => setTopic(t)} />
-
-          <input type="text" placeholder="e.g. Fourier transforms, thermodynamics..." value={topic} onChange={e => setTopic(e.target.value)} onKeyDown={e => e.key === "Enter" && topic.trim() && setGoalStep(true)} autoFocus style={{ width: "100%", background: "var(--bg-2)", color: "var(--text)", border: "1px solid var(--border)", padding: "16px 20px", fontFamily: "DM Mono, monospace", fontSize: "14px", outline: "none", marginBottom: "12px", transition: "border-color 0.2s" }} onFocus={e => (e.currentTarget.style.borderColor = "var(--text-3)")} onBlur={e => (e.currentTarget.style.borderColor = "var(--border)")} />
-
           {/* PDF drag and drop (3E) */}
           <div
             {...getRootProps()}
@@ -1242,7 +1308,7 @@ function SessionInner() {
             </p>
           </div>
 
-          <button onClick={() => { if (!topic.trim()) return; setGoalStep(true) }} disabled={!topic.trim()} style={{ width: "100%", background: topic.trim() ? "var(--text)" : "var(--bg-3)", color: topic.trim() ? "var(--bg)" : "var(--text-3)", border: "none", padding: "16px", fontFamily: "DM Mono, monospace", fontSize: "13px", fontWeight: 500, cursor: topic.trim() ? "pointer" : "not-allowed", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "16px", transition: "all 0.2s", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}><Lock size={14} /> LOCK IN</button>
+          <button onClick={() => { if (selectedTopics.length === 0) return; setGoalStep(true) }} disabled={selectedTopics.length === 0} style={{ width: "100%", background: selectedTopics.length > 0 ? "var(--text)" : "var(--bg-3)", color: selectedTopics.length > 0 ? "var(--bg)" : "var(--text-3)", border: "none", padding: "16px", fontFamily: "DM Mono, monospace", fontSize: "13px", fontWeight: 500, cursor: selectedTopics.length > 0 ? "pointer" : "not-allowed", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "16px", transition: "all 0.2s", display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}><Lock size={14} /> LOCK IN</button>
           <button onClick={() => router.push("/dashboard")} style={{ background: "none", border: "none", color: "var(--text-3)", fontFamily: "DM Mono, monospace", fontSize: "12px", cursor: "pointer", letterSpacing: "0.05em", width: "100%", padding: "8px", textTransform: "uppercase", display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}><ArrowLeft size={12} /> BACK</button>
         </div>
       </div>
@@ -1251,41 +1317,15 @@ function SessionInner() {
 
   // ── Session screen ────────────────────────────────────────────────────────
   return (
-    <div style={{ minHeight: "100vh", background: "var(--bg)", display: "flex", flexDirection: "column", position: "relative" }}>
+    <div style={{ minHeight: "100vh", background: "#000", display: "flex", flexDirection: "column", position: "relative" }}>
 
-      {/* Background atmosphere orbs */}
-      <div style={{ position: "fixed", inset: 0, pointerEvents: "none", zIndex: 0, overflow: "hidden" }}>
-        {/* Noise grain */}
-        <div style={{
-          position: "absolute", inset: 0, opacity: 0.025,
-          backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")`,
-          backgroundRepeat: "repeat", backgroundSize: "128px 128px",
-        }} />
-        <div style={{
-          position: "absolute", top: "-200px", right: "-200px",
-          width: "700px", height: "700px", borderRadius: "50%",
-          background: "radial-gradient(circle, rgba(200,169,110,0.03) 0%, transparent 70%)",
-          animation: "drift1 25s linear infinite",
-        }} />
-        <div style={{
-          position: "absolute", bottom: "-150px", left: "-150px",
-          width: "500px", height: "500px", borderRadius: "50%",
-          background: "radial-gradient(circle, rgba(200,169,110,0.018) 0%, transparent 70%)",
-          animation: "drift2 32s linear infinite",
-        }} />
-        <div style={{
-          position: "absolute", top: "30%", left: "50%",
-          width: "450px", height: "450px", borderRadius: "50%",
-          background: "radial-gradient(circle, rgba(126,184,218,0.012) 0%, transparent 65%)",
-          animation: "drift1 40s linear infinite reverse",
-        }} />
-      </div>
 
       {/* Study buddy mascot */}
       <StudyBuddy
         messageCount={messages.filter(m => m.role === "user").length}
         lastAiMessage={(() => { const aiMsgs = messages.filter(m => m.role === "assistant" && m.content); return aiMsgs.length > 0 ? aiMsgs[aiMsgs.length - 1].content : "" })()}
       />
+
 
       {/* Header — fixed */}
       <div style={{
@@ -1383,11 +1423,11 @@ function SessionInner() {
                   border: msg.role === "user" ? "1px solid var(--border)" : "none",
                   borderLeft: msg.role === "user" ? "2px solid var(--accent-dim)" : "none",
                   color: msg.role === "user" ? "var(--text-2)" : "var(--text)",
-                  fontSize: msg.role === "assistant" ? "15px" : "13px",
-                  lineHeight: msg.role === "assistant" ? "1.9" : "1.7",
-                  letterSpacing: msg.role === "assistant" ? "0.01em" : "0",
-                  fontFamily: "DM Mono, monospace",
-                  fontWeight: msg.role === "assistant" ? 300 : 400,
+                  fontSize: msg.role === "assistant" ? "16px" : "13px",
+                  lineHeight: msg.role === "assistant" ? "1.95" : "1.7",
+                  letterSpacing: msg.role === "assistant" ? "0.005em" : "0",
+                  fontFamily: msg.role === "assistant" ? "'Source Serif 4', Georgia, serif" : "DM Mono, monospace",
+                  fontWeight: msg.role === "assistant" ? 400 : 400,
                 }}>
                   {msg.role === "assistant" ? (
                     <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
@@ -1396,7 +1436,7 @@ function SessionInner() {
                         rehypePlugins={[rehypeKatex, rehypeRaw, [rehypeSanitize, sanitizeSchema]]}
                         components={{
                           p: ({ children }) => (
-                            <p style={{ marginBottom: "16px", lineHeight: "1.9", fontSize: "15px", fontFamily: "DM Mono, monospace", fontWeight: 300, letterSpacing: "0.01em", color: "var(--text)" }}>
+                            <p style={{ marginBottom: "16px", lineHeight: "1.95", fontSize: "16px", fontFamily: "'Source Serif 4', Georgia, serif", fontWeight: 400, letterSpacing: "0.005em", color: "var(--text)" }}>
                               {children}
                             </p>
                           ),
@@ -1505,35 +1545,35 @@ function SessionInner() {
                             <ol style={{ paddingLeft: "20px", marginBottom: "16px", display: "flex", flexDirection: "column", gap: "8px" }}>{children}</ol>
                           ),
                           li: ({ children }) => (
-                            <li style={{ lineHeight: "1.9", fontSize: "15px", fontFamily: "DM Mono, monospace", fontWeight: 300, color: "var(--text)" }}>
-                              <span style={{ color: "#5a9e6f", marginRight: "4px" }}>›</span>{children}
+                            <li style={{ lineHeight: "1.95", fontSize: "16px", fontFamily: "'Source Serif 4', Georgia, serif", fontWeight: 400, color: "var(--text)" }}>
+                              <span style={{ color: "var(--success)", marginRight: "4px" }}>›</span>{children}
                             </li>
                           ),
                           table: ({ children }) => (
                             <div style={{ overflowX: "auto", marginBottom: "16px", WebkitOverflowScrolling: "touch" as React.CSSProperties["WebkitOverflowScrolling"] }}>
-                              <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: "DM Mono, monospace", fontSize: "13px", minWidth: "400px" }}>
+                              <table style={{ width: "100%", borderCollapse: "collapse", fontFamily: "'Source Serif 4', Georgia, serif", fontSize: "14px", minWidth: "400px" }}>
                                 {children}
                               </table>
                             </div>
                           ),
                           th: ({ children }) => (
-                            <th style={{ padding: "10px 14px", borderBottom: "1px solid var(--border)", color: "#e8c872", textAlign: "left", fontWeight: 500, letterSpacing: "0.05em", background: "rgba(200,169,110,0.05)" }}>{children}</th>
+                            <th style={{ padding: "10px 14px", borderBottom: "1px solid var(--border)", color: "var(--accent)", textAlign: "left", fontWeight: 600, letterSpacing: "0.03em", fontFamily: "DM Mono, monospace", fontSize: "12px", textTransform: "uppercase", background: "rgba(200,169,110,0.05)" }}>{children}</th>
                           ),
                           td: ({ children }) => (
-                            <td style={{ padding: "10px 14px", borderBottom: "1px solid var(--bg-3)", color: "var(--text)", lineHeight: "1.6" }}>{children}</td>
+                            <td style={{ padding: "10px 14px", borderBottom: "1px solid var(--bg-3)", color: "var(--text)", lineHeight: "1.7" }}>{children}</td>
                           ),
                           blockquote: ({ children }) => (
                             <div style={{
                               background: "rgba(200,169,110,0.06)", borderLeft: "3px solid var(--accent)",
                               padding: "18px 22px", marginBottom: "16px",
-                              fontSize: "15px", fontFamily: "DM Mono, monospace", fontWeight: 300,
-                              color: "#e8dcc8", lineHeight: "1.8",
+                              fontSize: "16px", fontFamily: "'Source Serif 4', Georgia, serif", fontWeight: 400,
+                              fontStyle: "italic", color: "var(--text)", lineHeight: "1.9",
                             }}>
                               {children}
                             </div>
                           ),
                           strong: ({ children }) => (
-                            <strong style={{ color: "#e8c872", fontWeight: 500 }}>{children}</strong>
+                            <strong style={{ color: "var(--accent)", fontWeight: 600 }}>{children}</strong>
                           ),
                         }}
                       >
@@ -1808,7 +1848,7 @@ function SessionInner() {
                   transition: "all 0.2s"
                 }}
               >
-                <span style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}><ArrowRight size={14} /> BACK TO DASHBOARD</span>
+                <span style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}><ArrowRight size={14} /> END SESSION</span>
               </button>
               {recapData && (
                 <button

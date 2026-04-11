@@ -4,7 +4,7 @@ import { supabase } from "@/lib/supabase"
 import type { FriendWithPresence, StudyGroupSummary } from "@/lib/helpers"
 
 type SidebarProps = {
-  activePage: "dashboard" | "sessions" | "past-papers" | "analytics" | "patterns" | "settings" | "groups"
+  activePage: "dashboard" | "sessions" | "notes" | "past-papers" | "analytics" | "patterns" | "settings" | "groups"
   stats: {
     totalSessions: number
     masteryCount: number
@@ -21,6 +21,7 @@ type SidebarProps = {
 const NAV_ITEMS: { key: SidebarProps["activePage"]; label: string; href: string }[] = [
   { key: "dashboard",    label: "dashboard",    href: "/dashboard" },
   { key: "sessions",     label: "sessions",     href: "/sessions" },
+  { key: "notes",        label: "notes",        href: "/notes" },
   { key: "past-papers",  label: "past papers",  href: "/past-papers" },
   { key: "analytics",    label: "analytics",    href: "/analytics" },
   { key: "patterns",     label: "my patterns",  href: "/patterns" },
@@ -44,7 +45,7 @@ export default function Sidebar({ activePage, stats, friends = [], groups = [], 
   const router = useRouter()
 
   return (
-    <div style={{ width: "260px", minHeight: "100vh", borderRight: "1px solid var(--border)", display: "flex", flexDirection: "column", flexShrink: 0, position: "sticky", top: 0, height: "100vh", overflowY: "auto" }}>
+    <div className="sidebar-fixed" style={{ width: "260px", minHeight: "100vh", borderRight: "1px solid var(--border)", display: "flex", flexDirection: "column", flexShrink: 0, position: "sticky", top: 0, height: "100vh", overflowY: "auto" }}>
 
       {/* Logo */}
       <div style={{ padding: "28px 24px 24px", borderBottom: "1px solid var(--border)" }}>
