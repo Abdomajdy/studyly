@@ -510,34 +510,53 @@ async function streamAI(
   if (!reader) { onError("No stream body"); return }
 
   const decoder = new TextDecoder()
-  let full = ""
-  let buffer = ""
-  let rafId: number | null = null
+  let incoming = ""
+  let emitted = 0
+  let streamDone = false
+  let aborted = false
 
-  function flushBuffer() {
-    if (buffer.length > 0) {
-      onToken(buffer)
-      buffer = ""
+  // Network pump — fills `incoming` as fast as bytes arrive, independent of
+  // the visual cadence. This is what makes the typewriter feel smooth even
+  // when the server ships word- or phrase-sized SSE chunks.
+  const pump = (async () => {
+    try {
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        incoming += decoder.decode(value, { stream: true })
+      }
+    } catch (err) {
+      aborted = true
+      onError(err instanceof Error ? err.message : String(err))
+    } finally {
+      streamDone = true
     }
-    rafId = null
-  }
+  })()
 
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    const chunk = decoder.decode(value, { stream: true })
-    full += chunk
-    buffer += chunk
-    if (!rafId) {
-      rafId = requestAnimationFrame(flushBuffer)
+  // Typewriter drain — emits a few chars per frame so text flows character
+  // by character (ChatGPT/Claude feel). Auto-catches up when the network
+  // runs ahead, so we never visibly fall behind the server.
+  await new Promise<void>(resolve => {
+    function tick() {
+      if (aborted) { resolve(); return }
+      const pending = incoming.length - emitted
+      if (pending <= 0) {
+        if (streamDone) { resolve(); return }
+        requestAnimationFrame(tick)
+        return
+      }
+      const base = 3
+      const catchup = Math.max(0, Math.ceil((pending - 60) / 3))
+      const take = Math.min(pending, base + catchup)
+      onToken(incoming.slice(emitted, emitted + take))
+      emitted += take
+      requestAnimationFrame(tick)
     }
-  }
+    requestAnimationFrame(tick)
+  })
 
-  // flush any remaining buffer
-  if (rafId) cancelAnimationFrame(rafId)
-  if (buffer.length > 0) onToken(buffer)
-
-  onDone(full)
+  await pump
+  if (!aborted) onDone(incoming)
 }
 
 // ── Inner component that uses useSearchParams ─────────────────────────────────
