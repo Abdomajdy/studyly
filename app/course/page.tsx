@@ -425,10 +425,10 @@ function CoursePage() {
                   {course.course_code}
                 </p>
               )}
-              <h1 style={{
+              <h1 className="flourish-underline" style={{
                 fontFamily: "DM Serif Display, serif", fontSize: "44px",
                 color: "var(--text)", letterSpacing: "-0.02em", lineHeight: 1.1,
-                marginBottom: "20px",
+                marginBottom: "32px",
               }}>
                 {course?.course_name || courseName}
               </h1>
@@ -443,7 +443,7 @@ function CoursePage() {
                   ...(weakTopics.length > 0 ? [{ label: `${weakTopics.length} weak`, color: "var(--danger)" }] : []),
                 ].map((chip, i) => (
                   <span key={i} style={{
-                    background: "var(--bg-2)", border: "1px solid var(--border)",
+                    border: "1px solid var(--border)",
                     padding: "6px 12px", fontSize: "11px", fontFamily: "DM Mono, monospace",
                     color: chip.color, letterSpacing: "0.03em",
                   }}>
@@ -455,7 +455,7 @@ function CoursePage() {
               {/* Exam countdown — emotional when close */}
               {daysUntilExam !== null && daysUntilExam >= 0 && (
                 <div style={{
-                  background: daysUntilExam <= 3 ? "rgba(224,90,90,0.08)" : "var(--bg-2)",
+                  background: daysUntilExam <= 3 ? "rgba(224,90,90,0.08)" : "transparent",
                   border: `1px solid ${daysUntilExam <= 3 ? "var(--danger)" : "var(--border)"}`,
                   padding: "16px 20px",
                   display: "flex", alignItems: "center", gap: "16px",
@@ -500,7 +500,7 @@ function CoursePage() {
             <div
               onClick={() => router.push(`/session?topic=${encodeURIComponent(recommendedTopic.topic)}&course=${encodeURIComponent(courseName)}`)}
               style={{
-                background: "var(--bg-2)", border: "1px solid var(--border)",
+                border: "1px solid var(--border)",
                 padding: "24px 28px", marginBottom: "32px", cursor: "pointer",
                 transition: "border-color 0.2s, transform 0.15s",
                 display: "flex", alignItems: "center", justifyContent: "space-between",
@@ -550,7 +550,7 @@ function CoursePage() {
           {/* ═══════════════════════════════════════════════════════════════
               TWO-COLUMN LAYOUT: Topics + Activity
               ═══════════════════════════════════════════════════════════ */}
-          <div className="dark-fixed" style={{ display: "grid", gridTemplateColumns: "1fr 340px", gap: "40px", marginBottom: "48px" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 340px", gap: "40px", marginBottom: "48px" }}>
 
             {/* ── LEFT: Topic mastery cards ────────────────────────────────── */}
             <div>
@@ -565,8 +565,8 @@ function CoursePage() {
                   </p>
                 </div>
               ) : (
-                <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                  {[...topics].sort((a, b) => a.score - b.score).map((topic, i) => {
+                <div>
+                  {[...topics].sort((a, b) => a.score - b.score).map((topic, i, arr) => {
                     const isHov = hoveredTopic === topic.id
                     const daysSince = topic.last_studied_at
                       ? Math.floor((Date.now() - new Date(topic.last_studied_at).getTime()) / 86400000)
@@ -580,10 +580,11 @@ function CoursePage() {
                         onMouseOut={() => setHoveredTopic(null)}
                         onClick={() => router.push(`/session?topic=${encodeURIComponent(topic.topic)}&course=${encodeURIComponent(courseName)}`)}
                         style={{
-                          background: isHov ? "var(--bg-3)" : "var(--bg-2)",
-                          padding: "16px 20px",
+                          background: isHov ? "var(--bg-2)" : "transparent",
+                          padding: "16px 4px",
                           cursor: "pointer",
                           transition: "background 0.15s ease",
+                          borderBottom: i < arr.length - 1 ? "1px solid var(--border)" : "none",
                           opacity: 0, animation: "fadeIn 0.4s ease forwards",
                           animationDelay: `${i * 0.04}s`,
                         }}
@@ -645,7 +646,7 @@ function CoursePage() {
                   <p style={{ color: "var(--text-3)", fontSize: "10px", letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: "16px" }}>
                     activity
                   </p>
-                  <div style={{ background: "var(--bg-2)", padding: "20px", border: "1px solid var(--border)" }}>
+                  <div>
                     <ActivityHeatmap sessions={sessions} />
                     <div style={{ display: "flex", gap: "12px", marginTop: "12px", justifyContent: "flex-end" }}>
                       <span style={{ fontSize: "9px", color: "var(--text-3)", fontFamily: "DM Mono, monospace" }}>less</span>
@@ -663,7 +664,7 @@ function CoursePage() {
                 <p style={{ color: "var(--text-3)", fontSize: "10px", letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: "16px" }}>
                   breakdown
                 </p>
-                <div style={{ background: "var(--bg-2)", padding: "20px", border: "1px solid var(--border)" }}>
+                <div>
                   {topics.length > 0 ? (
                     <>
                       {/* Visual topic distribution */}
@@ -716,7 +717,7 @@ function CoursePage() {
                         key={t.id}
                         onClick={() => router.push(`/session?topic=${encodeURIComponent(t.topic)}&course=${encodeURIComponent(courseName)}`)}
                         style={{
-                          background: "var(--bg-2)", border: "1px solid var(--border)",
+                          background: "transparent", border: "1px solid var(--border)",
                           color: "var(--danger)", padding: "6px 12px",
                           fontFamily: "DM Mono, monospace", fontSize: "10px", cursor: "pointer",
                           transition: "border-color 0.2s",

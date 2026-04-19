@@ -102,12 +102,12 @@ export default function PastPapersPage() {
   )
 
   return (
-    <div style={{ minHeight: "100vh", background: "var(--bg)", opacity: visible ? 1 : 0, transition: "opacity 0.6s ease" }}>
-      <div style={{ maxWidth: "640px", margin: "0 auto", padding: "64px 24px" }}>
+    <div className="ambient-bg" style={{ minHeight: "100vh", background: "var(--bg)", opacity: visible ? 1 : 0, transition: "opacity 0.6s ease" }}>
+      <div style={{ maxWidth: "640px", margin: "0 auto", padding: "64px 24px", position: "relative", zIndex: 2 }}>
 
         <div style={{ marginBottom: "48px" }}>
-          <p style={{ color: "var(--accent)", fontSize: "11px", letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: "12px", fontFamily: "DM Mono, monospace" }}>PAST PAPERS</p>
-          <h1 style={{ fontFamily: "DM Serif Display, serif", fontSize: "40px", color: "var(--text)", letterSpacing: "-0.02em", marginBottom: "12px" }}>
+          <p className="marginal-mark">§ 03 · PAST PAPERS</p>
+          <h1 className="flourish-underline" style={{ fontFamily: "DM Serif Display, serif", fontSize: "40px", color: "var(--text)", letterSpacing: "-0.02em", marginBottom: "28px" }}>
             Practice on real exams.
           </h1>
           <p style={{ color: "var(--text-3)", fontSize: "14px", fontFamily: "DM Mono, monospace", lineHeight: "1.7" }}>
@@ -158,6 +158,7 @@ export default function PastPapersPage() {
         {/* Papers list */}
         {papers.length > 0 && (
           <div>
+            <hr className="ornament-divider" />
             <p style={{ color: "var(--text-3)", fontSize: "10px", letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: "16px", fontFamily: "DM Mono, monospace" }}>
               YOUR PAPERS
             </p>

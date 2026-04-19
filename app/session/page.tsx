@@ -27,7 +27,7 @@ import { useInView } from "react-intersection-observer"
 import {
   Send, Mic, MicOff, ArrowLeft, ArrowRight, Lock,
   Upload, Copy, Check, X, Square, Share2, Clock, Zap,
-  BookOpen, Brain, Target, Loader2
+  BookOpen, Brain, Target, Loader2, Pencil, Eraser, Trash2, Download, Minus
 } from "lucide-react"
 import PlotlyChart from "@/components/PlotlyChart"
 import DesmosEmbed from "@/components/DesmosEmbed"
@@ -55,6 +55,20 @@ const sanitizeSchema = {
     circle: ["cx", "cy", "r", "fill", "stroke"],
     text: ["x", "y", "fill", "fontSize", "fontFamily", "textAnchor"],
   },
+}
+
+// ── YouTube embed helper ─────────────────────────────────────────────────────
+function extractYouTubeId(url: string): string | null {
+  try {
+    const u = new URL(url)
+    if (u.hostname === "youtu.be") return u.pathname.slice(1).split("/")[0] || null
+    if (u.hostname.includes("youtube.com")) {
+      if (u.pathname.startsWith("/watch")) return u.searchParams.get("v")
+      if (u.pathname.startsWith("/embed/")) return u.pathname.split("/embed/")[1]?.split("?")[0] || null
+      if (u.pathname.startsWith("/shorts/")) return u.pathname.split("/shorts/")[1]?.split("?")[0] || null
+    }
+  } catch { /* not a valid URL */ }
+  return null
 }
 
 const BUDDY_IDLE_MESSAGES = [
@@ -527,6 +541,306 @@ async function streamAI(
 }
 
 // ── Inner component that uses useSearchParams ─────────────────────────────────
+// ── Whiteboard (drawing canvas) ──────────────────────────────────────────────
+const BOARD_COLORS = ["#f0ede8", "#c8a96e", "#7eb8da", "#e05a5a", "#5a9e6f", "#a8a0d2"]
+
+function Whiteboard({
+  onClose,
+  svgContent,
+  onSendAnswer,
+}: {
+  onClose: () => void
+  svgContent?: string | null
+  onSendAnswer?: (dataUrl: string) => void
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const [color, setColor] = useState(BOARD_COLORS[0])
+  const [strokeWidth, setStrokeWidth] = useState(3)
+  const [tool, setTool] = useState<"pen" | "eraser">("pen")
+  const [sending, setSending] = useState(false)
+  const drawing = useRef(false)
+  const paths = useRef<{ color: string; width: number; points: [number, number][] }[]>([])
+  const undoneRef = useRef<typeof paths.current>([])
+  const svgImageRef = useRef<HTMLImageElement | null>(null)
+
+  function getCtx() {
+    const canvas = canvasRef.current
+    if (!canvas) return null
+    return canvas.getContext("2d")
+  }
+
+  function resizeCanvas() {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const parent = canvas.parentElement
+    if (!parent) return
+    const dpr = window.devicePixelRatio || 1
+    const w = parent.clientWidth
+    const h = parent.clientHeight
+    canvas.width = w * dpr
+    canvas.height = h * dpr
+    canvas.style.width = w + "px"
+    canvas.style.height = h + "px"
+    const ctx = getCtx()
+    if (ctx) {
+      ctx.scale(dpr, dpr)
+      redraw(ctx, w, h)
+    }
+  }
+
+  function redraw(ctx: CanvasRenderingContext2D, w: number, h: number) {
+    ctx.fillStyle = "#0a0a0b"
+    ctx.fillRect(0, 0, w, h)
+    // grid dots
+    ctx.fillStyle = "rgba(255,255,255,0.04)"
+    for (let x = 20; x < w; x += 20) {
+      for (let y = 20; y < h; y += 20) {
+        ctx.fillRect(x, y, 1, 1)
+      }
+    }
+    // Claude's question board (rasterized SVG), scaled to fit
+    const img = svgImageRef.current
+    if (img) {
+      const naturalW = img.naturalWidth || 700
+      const naturalH = img.naturalHeight || 400
+      const maxW = Math.min(w * 0.85, 1000)
+      const maxH = h * 0.9
+      const scale = Math.min(maxW / naturalW, maxH / naturalH, 2)
+      const drawW = naturalW * scale
+      const drawH = naturalH * scale
+      const x = (w - drawW) / 2
+      const y = 24
+      ctx.drawImage(img, x, y, drawW, drawH)
+    }
+    for (const path of paths.current) {
+      if (path.points.length < 2) continue
+      ctx.beginPath()
+      ctx.strokeStyle = path.color
+      ctx.lineWidth = path.width
+      ctx.lineCap = "round"
+      ctx.lineJoin = "round"
+      ctx.moveTo(path.points[0][0], path.points[0][1])
+      for (let i = 1; i < path.points.length; i++) {
+        ctx.lineTo(path.points[i][0], path.points[i][1])
+      }
+      ctx.stroke()
+    }
+  }
+
+  // Rasterize Claude's SVG into an Image so it can be drawn onto the canvas as background
+  useEffect(() => {
+    if (!svgContent) { svgImageRef.current = null; return }
+    const withNs = /\bxmlns=/.test(svgContent)
+      ? svgContent
+      : svgContent.replace(/<svg(\s|>)/, '<svg xmlns="http://www.w3.org/2000/svg"$1')
+    const blob = new Blob([withNs], { type: "image/svg+xml;charset=utf-8" })
+    const url = URL.createObjectURL(blob)
+    const img = new Image()
+    img.onload = () => {
+      svgImageRef.current = img
+      URL.revokeObjectURL(url)
+      const ctx = getCtx()
+      const canvas = canvasRef.current
+      if (ctx && canvas) {
+        const dpr = window.devicePixelRatio || 1
+        redraw(ctx, canvas.width / dpr, canvas.height / dpr)
+      }
+    }
+    img.onerror = () => { URL.revokeObjectURL(url) }
+    img.src = url
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [svgContent])
+
+  useEffect(() => {
+    resizeCanvas()
+    const handleResize = () => resizeCanvas()
+    window.addEventListener("resize", handleResize)
+    return () => window.removeEventListener("resize", handleResize)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  function getPos(e: React.PointerEvent): [number, number] {
+    const rect = canvasRef.current!.getBoundingClientRect()
+    return [e.clientX - rect.left, e.clientY - rect.top]
+  }
+
+  function onPointerDown(e: React.PointerEvent) {
+    drawing.current = true
+    canvasRef.current?.setPointerCapture(e.pointerId)
+    const activeColor = tool === "eraser" ? "#0a0a0b" : color
+    const activeWidth = tool === "eraser" ? 20 : strokeWidth
+    paths.current.push({ color: activeColor, width: activeWidth, points: [getPos(e)] })
+    undoneRef.current = []
+  }
+
+  function onPointerMove(e: React.PointerEvent) {
+    if (!drawing.current) return
+    const path = paths.current[paths.current.length - 1]
+    if (!path) return
+    path.points.push(getPos(e))
+    const ctx = getCtx()
+    const canvas = canvasRef.current
+    if (ctx && canvas) {
+      const dpr = window.devicePixelRatio || 1
+      redraw(ctx, canvas.width / dpr, canvas.height / dpr)
+    }
+  }
+
+  function onPointerUp() {
+    drawing.current = false
+  }
+
+  function undo() {
+    if (paths.current.length === 0) return
+    undoneRef.current.push(paths.current.pop()!)
+    const ctx = getCtx()
+    const canvas = canvasRef.current
+    if (ctx && canvas) {
+      const dpr = window.devicePixelRatio || 1
+      redraw(ctx, canvas.width / dpr, canvas.height / dpr)
+    }
+  }
+
+  function clearAll() {
+    paths.current = []
+    undoneRef.current = []
+    const ctx = getCtx()
+    const canvas = canvasRef.current
+    if (ctx && canvas) {
+      const dpr = window.devicePixelRatio || 1
+      redraw(ctx, canvas.width / dpr, canvas.height / dpr)
+    }
+  }
+
+  function downloadImage() {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const link = document.createElement("a")
+    link.download = "studyly-board.png"
+    link.href = canvas.toDataURL("image/png")
+    link.click()
+  }
+
+  function sendAnswer() {
+    if (sending || !onSendAnswer) return
+    const canvas = canvasRef.current
+    if (!canvas) return
+    setSending(true)
+    onSendAnswer(canvas.toDataURL("image/png"))
+  }
+
+  useEffect(() => {
+    function handleKeydown(e: KeyboardEvent) {
+      if ((e.ctrlKey || e.metaKey) && e.key === "z") { e.preventDefault(); undo() }
+    }
+    window.addEventListener("keydown", handleKeydown)
+    return () => window.removeEventListener("keydown", handleKeydown)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const btnStyle = (active?: boolean): React.CSSProperties => ({
+    background: active ? "var(--bg-3)" : "transparent",
+    border: active ? "1px solid var(--accent-dim)" : "1px solid var(--border)",
+    color: active ? "var(--accent)" : "var(--text-3)",
+    padding: "6px 8px", cursor: "pointer", display: "flex", alignItems: "center",
+    justifyContent: "center", transition: "all 0.2s",
+  })
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: 20 }}
+      transition={{ duration: 0.3, ease: [0, 0, 0.2, 1] }}
+      style={{
+        position: "fixed", bottom: 80, left: 0, right: 0, top: 60,
+        zIndex: 45, background: "var(--bg)", display: "flex", flexDirection: "column",
+        borderTop: "1px solid var(--border)",
+      }}
+    >
+      {/* Toolbar */}
+      <div style={{
+        display: "flex", alignItems: "center", gap: "6px", padding: "8px 16px",
+        borderBottom: "1px solid var(--border)", background: "var(--bg-2)",
+        flexWrap: "wrap",
+      }}>
+        <button onClick={() => setTool("pen")} style={btnStyle(tool === "pen")} title="Pen">
+          <Pencil size={14} />
+        </button>
+        <button onClick={() => setTool("eraser")} style={btnStyle(tool === "eraser")} title="Eraser">
+          <Eraser size={14} />
+        </button>
+
+        <div style={{ width: "1px", height: "20px", background: "var(--border)", margin: "0 4px" }} />
+
+        {BOARD_COLORS.map(c => (
+          <button key={c} onClick={() => { setColor(c); setTool("pen") }} style={{
+            width: "20px", height: "20px", borderRadius: "50%", border: color === c && tool === "pen" ? "2px solid var(--text)" : "2px solid var(--border)",
+            background: c, cursor: "pointer", transition: "border-color 0.2s", padding: 0,
+          }} />
+        ))}
+
+        <div style={{ width: "1px", height: "20px", background: "var(--border)", margin: "0 4px" }} />
+
+        {[1, 3, 6].map(w => (
+          <button key={w} onClick={() => setStrokeWidth(w)} style={btnStyle(strokeWidth === w && tool === "pen")} title={`${w}px`}>
+            <Minus size={14} strokeWidth={w} />
+          </button>
+        ))}
+
+        <div style={{ flex: 1 }} />
+
+        <button onClick={undo} style={btnStyle()} title="Undo (Ctrl+Z)">
+          <ArrowLeft size={14} />
+        </button>
+        <button onClick={downloadImage} style={btnStyle()} title="Save as PNG">
+          <Download size={14} />
+        </button>
+        <button onClick={clearAll} style={btnStyle()} title="Clear board">
+          <Trash2 size={14} />
+        </button>
+        {onSendAnswer && (
+          <button
+            onClick={sendAnswer}
+            disabled={sending}
+            style={{
+              background: sending ? "transparent" : "var(--accent)",
+              border: "1px solid var(--accent)",
+              color: sending ? "var(--accent)" : "var(--bg)",
+              padding: "6px 14px",
+              cursor: sending ? "wait" : "pointer",
+              fontFamily: "DM Mono, monospace",
+              fontSize: "11px",
+              letterSpacing: "0.08em",
+              textTransform: "uppercase",
+              transition: "all 0.2s",
+              marginLeft: "4px",
+            }}
+            title="Send answer to Claude"
+          >
+            {sending ? "sending…" : "send answer →"}
+          </button>
+        )}
+        <button onClick={onClose} style={btnStyle()} title="Close board">
+          <X size={14} />
+        </button>
+      </div>
+
+      {/* Canvas */}
+      <div style={{ flex: 1, position: "relative", overflow: "hidden" }}>
+        <canvas
+          ref={canvasRef}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onPointerLeave={onPointerUp}
+          style={{ cursor: tool === "eraser" ? "cell" : "crosshair", touchAction: "none", display: "block" }}
+        />
+      </div>
+    </motion.div>
+  )
+}
+
 function SessionInner() {
   const router  = useRouter()
   const searchParams = useSearchParams()
@@ -557,6 +871,11 @@ function SessionInner() {
   const [courseTopics, setCourseTopics] = useState<string[]>([])
   const [selectedTopics, setSelectedTopics] = useState<string[]>([])
   const [studyMode, setStudyMode] = useState<"deep" | "casual" | "cram">("deep")
+  const [paperId, setPaperId] = useState<string | null>(null)
+  const [showBoard, setShowBoard] = useState(false)
+  const [pendingImage, setPendingImage] = useState<string | null>(null)
+  const [boardQuestion, setBoardQuestion] = useState<string | null>(null)
+  const lastBoardMsgIdxRef = useRef<number>(-1)
   const [statedGoal, setStatedGoal] = useState("")
   const [goalStep, setGoalStep] = useState(false)
   const [pendingGoal, setPendingGoal] = useState("")
@@ -698,16 +1017,57 @@ function SessionInner() {
     setTopic(selectedTopics.join(", "))
   }, [selectedTopics])
 
+  // ── Extract board question from latest assistant message (when streaming finishes) ──
+  useEffect(() => {
+    if (loading) return
+    // Find index of the latest assistant message that has content
+    let lastIdx = -1
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === "assistant" && messages[i].content.trim().length > 0) {
+        lastIdx = i
+        break
+      }
+    }
+    if (lastIdx === -1 || lastIdx === lastBoardMsgIdxRef.current) return
+
+    const content = messages[lastIdx].content
+    // Match the LAST board/whiteboard block in this message
+    const re = /```(?:board|whiteboard)\s*\n([\s\S]*?)\n```/g
+    let match: RegExpExecArray | null
+    let lastSvg: string | null = null
+    while ((match = re.exec(content)) !== null) lastSvg = match[1]
+
+    lastBoardMsgIdxRef.current = lastIdx
+    if (lastSvg) {
+      const safe = DOMPurify.sanitize(lastSvg, {
+        USE_PROFILES: { svg: true, svgFilters: true },
+        ADD_TAGS: ["foreignObject"],
+        FORBID_TAGS: ["script", "style"],
+        FORBID_ATTR: ["onerror", "onload", "onclick", "onmouseover"],
+      })
+      setBoardQuestion(safe)
+    }
+  }, [loading, messages])
+
+  // ── Auto-open whiteboard when Claude sends a board question ─────────────
+  useEffect(() => {
+    if (boardQuestion) setShowBoard(true)
+  }, [boardQuestion])
+
   // ── Init: check URL params ────────────────────────────────────────────────
   useEffect(() => {
     const paramTopic = searchParams.get("topic")
     const paramId = searchParams.get("id")
+    const paramPaperId = searchParams.get("paperId")
 
     if (paramTopic) {
       setTopic(decodeURIComponent(paramTopic))
     }
     if (paramId) {
       setSessionId(paramId)
+    }
+    if (paramPaperId) {
+      setPaperId(paramPaperId)
     }
 
     async function getUser() {
@@ -780,6 +1140,7 @@ function SessionInner() {
         masteryContext,
         totalSessions,
         studyMode,
+        ...(paperId ? { paperId } : {}),
       },
       (token) => {
         setMessages(prev => {
@@ -803,7 +1164,7 @@ function SessionInner() {
         setLoading(false)
       },
     )
-  }, [topic, masteryContext, totalSessions, notes, studyMode])
+  }, [topic, masteryContext, totalSessions, notes, studyMode, paperId])
 
   // ── Auto-start if topic came from URL ─────────────────────────────────────
   useEffect(() => {
@@ -922,11 +1283,20 @@ function SessionInner() {
     }
   }
 
-  async function sendMessage() {
-    if (!input.trim() || loading) return
-    const userMessage = input.trim()
-    setInput("")
-    const updatedMessages: Message[] = [...messages, { role: "user", content: userMessage }]
+  async function sendMessage(overrides?: { image?: string; text?: string }) {
+    if (loading) return
+    const overrideImage = overrides?.image
+    const overrideText = overrides?.text
+    const attachedImage = overrideImage ?? pendingImage
+    const baseText = overrideText ?? input.trim()
+    if (!baseText && !attachedImage) return
+    const userMessage = baseText || (attachedImage ? "Here's my solution on the board — please check my work." : "")
+    if (!overrideText) setInput("")
+    if (!overrideImage) setPendingImage(null)
+    // Always clear the question board after submitting an answer from it
+    setBoardQuestion(null)
+    const displayContent = attachedImage ? `${userMessage}\n\n[attached: board solution]` : userMessage
+    const updatedMessages: Message[] = [...messages, { role: "user", content: displayContent }]
     setMessages([...updatedMessages, { role: "assistant", content: "" }])
     setLoading(true)
 
@@ -960,6 +1330,8 @@ function SessionInner() {
           masteryContext,
           totalSessions,
           studyMode,
+          ...(paperId ? { paperId } : {}),
+          ...(attachedImage ? { image: attachedImage } : {}),
         },
         (token) => {
           setMessages(prev => {
@@ -1455,9 +1827,38 @@ function SessionInner() {
                           hr: () => (
                             <hr style={{ border: "none", borderTop: "1px solid var(--border)", margin: "20px 0" }} />
                           ),
-                          a: ({ children, href }) => (
-                            <a href={href} target="_blank" rel="noopener noreferrer" style={{ color: "#7eb8da", textDecoration: "underline", textUnderlineOffset: "3px" }}>{children}</a>
-                          ),
+                          a: ({ children, href }) => {
+                            const ytId = href ? extractYouTubeId(href) : null
+                            if (ytId) {
+                              return (
+                                <div style={{ margin: "16px 0" }}>
+                                  <div style={{
+                                    position: "relative", paddingBottom: "56.25%", height: 0,
+                                    overflow: "hidden", background: "var(--bg-3)",
+                                    border: "1px solid var(--border)", borderTop: "2px solid #e05050",
+                                  }}>
+                                    <iframe
+                                      src={`https://www.youtube-nocookie.com/embed/${ytId}`}
+                                      title="YouTube video"
+                                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                                      allowFullScreen
+                                      style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", border: "none" }}
+                                    />
+                                  </div>
+                                  <a href={href} target="_blank" rel="noopener noreferrer" style={{
+                                    display: "block", marginTop: "6px", color: "var(--text-3)",
+                                    fontSize: "11px", fontFamily: "DM Mono, monospace",
+                                    letterSpacing: "0.04em", textDecoration: "none",
+                                  }}>
+                                    ↗ open on youtube
+                                  </a>
+                                </div>
+                              )
+                            }
+                            return (
+                              <a href={href} target="_blank" rel="noopener noreferrer" style={{ color: "#7eb8da", textDecoration: "underline", textUnderlineOffset: "3px" }}>{children}</a>
+                            )
+                          },
                           code: ({ children, className }) => {
                             const match    = /language-(\w+)/.exec(className ?? "")
                             const language = match?.[1] ?? ""
@@ -1476,6 +1877,75 @@ function SessionInner() {
                                   }}
                                   dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(codeStr, { USE_PROFILES: { svg: true, svgFilters: true }, ADD_TAGS: ["foreignObject"], FORBID_TAGS: ["script", "style"], FORBID_ATTR: ["onerror", "onload", "onclick", "onmouseover"] }) }}
                                 />
+                              )
+                            }
+
+                            if (language === "board" || language === "whiteboard") {
+                              if (isStreaming) {
+                                return (
+                                  <div style={{
+                                    background: "#0a0a0b",
+                                    backgroundImage: "radial-gradient(circle, rgba(255,255,255,0.05) 1px, transparent 1px)",
+                                    backgroundSize: "24px 24px",
+                                    border: "1px solid var(--border)",
+                                    borderTop: "2px solid var(--accent)",
+                                    padding: "32px", margin: "24px 0",
+                                    minHeight: "200px",
+                                    display: "flex", justifyContent: "center", alignItems: "center",
+                                    color: "var(--text-3)", fontFamily: "DM Mono, monospace",
+                                    fontSize: "11px", letterSpacing: "0.15em", textTransform: "uppercase",
+                                    position: "relative",
+                                  }}>
+                                    <span style={{ opacity: 0.6 }}>✎ drawing on the board...</span>
+                                    <div style={{ display: "flex", gap: "6px", marginLeft: "12px" }}>
+                                      {[0, 1, 2].map(i => (
+                                        <div key={i} style={{
+                                          width: "4px", height: "4px", borderRadius: "50%",
+                                          background: "var(--accent)",
+                                          animation: `dotPulse 1.2s ease-in-out ${i * 0.2}s infinite`
+                                        }} />
+                                      ))}
+                                    </div>
+                                  </div>
+                                )
+                              }
+                              return (
+                                <div style={{
+                                  background: "#0a0a0b",
+                                  backgroundImage: "radial-gradient(circle, rgba(255,255,255,0.05) 1px, transparent 1px)",
+                                  backgroundSize: "24px 24px",
+                                  border: "1px solid var(--border)",
+                                  borderTop: "2px solid var(--accent)",
+                                  padding: "48px 32px 32px",
+                                  margin: "24px 0",
+                                  minHeight: "220px",
+                                  display: "flex", justifyContent: "center", alignItems: "center",
+                                  overflowX: "auto",
+                                  position: "relative",
+                                  boxShadow: "inset 0 0 80px rgba(0,0,0,0.4)",
+                                }}>
+                                  <div style={{
+                                    position: "absolute", top: "12px", left: "16px",
+                                    fontFamily: "DM Mono, monospace", fontSize: "10px",
+                                    color: "var(--accent)", letterSpacing: "0.18em",
+                                    textTransform: "uppercase", opacity: 0.7,
+                                    display: "flex", alignItems: "center", gap: "6px",
+                                  }}>
+                                    <Pencil size={10} /> WHITEBOARD
+                                  </div>
+                                  <div style={{
+                                    position: "absolute", top: "12px", right: "16px",
+                                    fontFamily: "DM Mono, monospace", fontSize: "9px",
+                                    color: "var(--text-3)", letterSpacing: "0.14em",
+                                    textTransform: "uppercase",
+                                  }}>
+                                    answer on the board →
+                                  </div>
+                                  <div
+                                    style={{ width: "100%", display: "flex", justifyContent: "center" }}
+                                    dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(codeStr, { USE_PROFILES: { svg: true, svgFilters: true }, ADD_TAGS: ["foreignObject"], FORBID_TAGS: ["script", "style"], FORBID_ATTR: ["onerror", "onload", "onclick", "onmouseover"] }) }}
+                                  />
+                                </div>
                               )
                             }
 
@@ -1621,6 +2091,20 @@ function SessionInner() {
         </div>
       </div>
 
+      {/* Whiteboard */}
+      <AnimatePresence>
+        {showBoard && (
+          <Whiteboard
+            onClose={() => setShowBoard(false)}
+            svgContent={boardQuestion}
+            onSendAnswer={boardQuestion ? (dataUrl) => {
+              setShowBoard(false)
+              sendMessage({ image: dataUrl })
+            } : undefined}
+          />
+        )}
+      </AnimatePresence>
+
       {/* Input bar — fixed */}
       <div style={{
         position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 50,
@@ -1629,6 +2113,39 @@ function SessionInner() {
         boxShadow: "0 -1px 12px rgba(0,0,0,0.2)",
       }}>
         <div style={{ maxWidth: "1100px", margin: "0 auto", width: "100%", padding: "16px 32px" }}>
+          {pendingImage && (
+            <div style={{
+              display: "flex", alignItems: "center", gap: "12px",
+              padding: "10px 14px", marginBottom: "10px",
+              background: "rgba(200,169,110,0.06)",
+              border: "1px solid var(--accent-dim)",
+              borderLeft: "2px solid var(--accent)",
+            }}>
+              <img src={pendingImage} alt="board solution" style={{
+                width: "56px", height: "40px", objectFit: "cover",
+                border: "1px solid var(--border)", background: "#0a0a0b",
+              }} />
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "2px" }}>
+                <span style={{ fontFamily: "DM Mono, monospace", fontSize: "10px", color: "var(--accent)", letterSpacing: "0.14em", textTransform: "uppercase" }}>
+                  BOARD SOLUTION ATTACHED
+                </span>
+                <span style={{ fontFamily: "DM Mono, monospace", fontSize: "11px", color: "var(--text-3)" }}>
+                  send a message to submit your work
+                </span>
+              </div>
+              <button
+                onClick={() => setPendingImage(null)}
+                title="Remove attached board"
+                style={{
+                  background: "transparent", border: "1px solid var(--border)",
+                  color: "var(--text-3)", cursor: "pointer", padding: "6px",
+                  display: "flex", alignItems: "center", transition: "all 0.2s",
+                }}
+                onMouseOver={e => { e.currentTarget.style.color = "var(--danger)"; e.currentTarget.style.borderColor = "var(--danger)" }}
+                onMouseOut={e => { e.currentTarget.style.color = "var(--text-3)"; e.currentTarget.style.borderColor = "var(--border)" }}
+              ><X size={12} /></button>
+            </div>
+          )}
           <div className="session-input-bar" style={{
             display: "flex",
             border: "1px solid var(--border)",
@@ -1671,16 +2188,27 @@ function SessionInner() {
               }}
               style={{ flex: 1, background: "transparent", color: "var(--text)", border: "none", padding: "16px 20px", fontFamily: "DM Mono, monospace", fontSize: "14px", outline: "none" }}
             />
+            <button
+              onClick={() => setShowBoard(b => !b)}
+              title="Whiteboard"
+              style={{
+                background: showBoard ? "var(--bg-3)" : "transparent",
+                border: "none", borderLeft: "1px solid var(--border)",
+                color: showBoard ? "var(--accent)" : "var(--text-3)",
+                padding: "16px 14px", cursor: "pointer", transition: "all 0.2s",
+                display: "flex", alignItems: "center",
+              }}
+            ><Pencil size={16} /></button>
             <VoiceButton onTranscript={(text) => setInput(prev => prev ? prev + " " + text : text)} />
             <button
-              onClick={sendMessage}
-              disabled={!input.trim() || loading}
+              onClick={() => sendMessage()}
+              disabled={(!input.trim() && !pendingImage) || loading}
               style={{
-                background: input.trim() && !loading ? "var(--text)" : "var(--bg-3)",
-                color: input.trim() && !loading ? "var(--bg)" : "var(--text-3)",
+                background: (input.trim() || pendingImage) && !loading ? "var(--text)" : "var(--bg-3)",
+                color: (input.trim() || pendingImage) && !loading ? "var(--bg)" : "var(--text-3)",
                 border: "none", borderLeft: "1px solid var(--border)",
                 padding: "16px 20px",
-                cursor: input.trim() && !loading ? "pointer" : "not-allowed",
+                cursor: (input.trim() || pendingImage) && !loading ? "pointer" : "not-allowed",
                 transition: "all 0.2s",
                 display: "flex", alignItems: "center",
               }}

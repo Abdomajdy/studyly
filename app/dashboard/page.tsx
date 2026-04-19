@@ -446,10 +446,10 @@ export default function DashboardPage() {
             <div>
               {/* Dynamic heading */}
               <div style={{ marginBottom: "32px" }}>
-                <p style={{ color: "var(--accent)", fontSize: "11px", letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: "12px" }}>
-                  {username || "there"}
+                <p className="marginal-mark" style={{ marginBottom: "12px" }}>
+                  § 01 · {(username || "there").toUpperCase()}
                 </p>
-                <h1 style={{ fontFamily: "DM Serif Display, serif", fontSize: "36px", color: "var(--text)", letterSpacing: "-0.02em", lineHeight: 1.1 }}>
+                <h1 className="flourish-underline" style={{ fontFamily: "DM Serif Display, serif", fontSize: "36px", color: "var(--text)", letterSpacing: "-0.02em", lineHeight: 1.1, marginBottom: "24px" }}>
                   {headLine1} <span style={{ fontStyle: headItalic ? "italic" : "normal" }}>{headLine2}</span>
                 </h1>
               </div>

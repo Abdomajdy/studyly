@@ -51,7 +51,7 @@ function ExamOutcomePage() {
             <p style={{ color: "var(--accent)", fontSize: "11px", letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: "20px", fontFamily: "DM Mono, monospace" }}>
               {course} EXAM
             </p>
-            <h1 style={{ fontFamily: "DM Serif Display, serif", fontSize: "36px", color: "var(--text)", marginBottom: "12px", letterSpacing: "-0.02em" }}>
+            <h1 className="flourish-underline" style={{ fontFamily: "DM Serif Display, serif", fontSize: "36px", color: "var(--text)", marginBottom: "28px", letterSpacing: "-0.02em" }}>
               How did it go?
             </h1>
             <p style={{ color: "var(--text-3)", fontSize: "13px", fontFamily: "DM Mono, monospace", marginBottom: "48px", lineHeight: "1.7" }}>

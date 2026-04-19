@@ -406,10 +406,10 @@ function GroupsPage() {
             <p style={{ color: "var(--accent-dim)", fontSize: "12px", fontFamily: "DM Mono, monospace", letterSpacing: "0.12em", textTransform: "uppercase", marginBottom: "8px" }}>
               {group.course}
             </p>
-            <h1 style={{
+            <h1 className="flourish-underline" style={{
               fontFamily: "DM Serif Display, serif", fontSize: "40px",
               color: "var(--text)", letterSpacing: "-0.02em", lineHeight: 1.1,
-              marginBottom: "16px",
+              marginBottom: "28px",
             }}>
               {group.name}
             </h1>

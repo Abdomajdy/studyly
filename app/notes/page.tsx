@@ -163,7 +163,7 @@ export default function NotesPage() {
             <p style={{ color: "var(--accent)", fontSize: "11px", letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: "12px", fontFamily: "DM Mono, monospace" }}>
               {username || "there"}
             </p>
-            <h1 style={{ fontFamily: "DM Serif Display, serif", fontSize: "32px", color: "var(--text)", marginBottom: "8px" }}>
+            <h1 className="flourish-underline" style={{ fontFamily: "DM Serif Display, serif", fontSize: "32px", color: "var(--text)", marginBottom: "20px" }}>
               session notes
             </h1>
             <p style={{ color: "var(--text-3)", fontSize: "13px", fontFamily: "DM Mono, monospace" }}>

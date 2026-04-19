@@ -151,7 +151,7 @@ export default function SettingsPage() {
             <p style={{ color: "var(--accent)", fontSize: "11px", letterSpacing: "0.15em", textTransform: "uppercase", marginBottom: "12px" }}>
               {username || "there"}
             </p>
-            <h1 style={{ fontFamily: "DM Serif Display, serif", fontSize: "40px", color: "var(--text)", letterSpacing: "-0.02em", lineHeight: 1.1 }}>
+            <h1 className="flourish-underline" style={{ fontFamily: "DM Serif Display, serif", fontSize: "40px", color: "var(--text)", letterSpacing: "-0.02em", lineHeight: 1.1, marginBottom: "20px" }}>
               Settings
             </h1>
           </div>
